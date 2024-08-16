@@ -1,3 +1,5 @@
+// add function that takes two u64 integers and returns their sum
+// add function is public
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
