@@ -244,9 +244,10 @@ impl Trie {
 impl Trie {
     /// Deletes a word from the trie.
     /// A word is deleted by traversing the trie and removing nodes if they are no longer necessary.
-    pub fn del(&mut self, word: &str) {
+
+    pub fn del(&mut self, word: &str) -> bool {
         let root = &mut self.root;
-        Trie::del_recursive(root, word, 0);
+        Trie::del_recursive(root, word, 0)
     }
 
     fn del_recursive(node: &mut Node, word: &str, depth: usize) -> bool {
@@ -268,7 +269,6 @@ impl Trie {
         false
     }
 }
-
 impl Node {
     /// Creates a new node.
     /// A node is a single element in a trie.
@@ -363,6 +363,41 @@ mod tests {
         trie.add(&["hello", "world"]);
         assert!(trie.root.children.contains_key(&'h'));
         assert!(trie.root.children.contains_key(&'w'));
+    }
+
+    #[test]
+    fn test_del() {
+        let mut trie = Trie::new();
+        trie.add(&["hello", "world", "hell"]);
+
+        // 删除存在的单词
+        assert!(trie.del("hello"));
+        assert!(
+            !trie
+                .root
+                .children
+                .get(&'h')
+                .unwrap()
+                .children
+                .get(&'e')
+                .unwrap()
+                .children
+                .get(&'l')
+                .unwrap()
+                .children
+                .get(&'l')
+                .unwrap()
+                .is_path_end
+        );
+
+        // 删除部分匹配的单词
+        assert!(trie.del("hell"));
+        assert!(
+            !trie.root.children.get(&'h').unwrap().children.get(&'e').unwrap().children.get(&'l').unwrap().is_path_end
+        );
+
+        // 删除不存在的单词
+        assert!(!trie.del("nonexistent"));
     }
 
     #[test]
