@@ -17,14 +17,12 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        rustc: ["1.67.1", stable] # MSVR and current stable rustc
+        rustc: [ nightly, stable ] # MSVR and current stable rustc
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.rustc }}
-          override: true
       - uses: actions-rs/cargo@v1
         with:
           command: check
@@ -42,17 +40,12 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: stable
-          override: true
           components: rustfmt
       - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args:  --all -- --check
+        run: cargo fmt --all -- --check
   clippy_check:
     name: Clippy
     runs-on: ubuntu-latest
@@ -66,17 +59,14 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: stable
-          override: true
           components: clippy
       - name: Run clippy check
-        uses: actions-rs/clippy-check@v1
+        run: cargo clippy --all-features
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          #args: --all-features
   test:
     name: Run tests
     runs-on: ubuntu-latest
@@ -91,12 +81,26 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: stable
-          override: true
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+        run: cargo test --all-features
+  publish_on_crates_io:
+    name: Publish on crates.io
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags') # Only on tags
+    needs:
+      - check
+      - rust_fmt_check
+      - clippy_check
+      - test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run cargo publish
+        run: cargo publish --registry crates-io --package sensitive-rs --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}

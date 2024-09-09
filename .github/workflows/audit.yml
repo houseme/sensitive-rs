@@ -11,6 +11,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Run audit check
-        uses: actions-rs/audit-check@v1.2.0
+        uses: rustsec/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
