@@ -169,10 +169,8 @@ impl Filter {
     /// Returns an error if the reader cannot be read.
     pub fn load<R: io::Read>(&mut self, reader: R) -> io::Result<()> {
         let buf_reader = BufReader::new(reader);
-        for line in buf_reader.lines() {
-            if let Ok(word) = line {
-                self.trie.add_word(word.as_str());
-            }
+        for word in buf_reader.lines().flatten() {
+            self.trie.add_word(word.as_str());
         }
         Ok(())
     }
@@ -207,8 +205,8 @@ impl Filter {
     /// # Returns
     /// * `()` - Returns nothing.
     pub fn add_words(&mut self, words: &[&str]) {
-        for i in 0..words.len() {
-            self.trie.add_word(words[i]);
+        for word in words {
+            self.trie.add_word(word);
         }
     }
 
@@ -247,8 +245,8 @@ impl Filter {
     /// # Errors
     /// Returns an error if the word is not found.
     pub fn del_words(&mut self, words: &[&str]) {
-        for i in 0..words.len() {
-            self.trie.del_word(words[i]);
+        for word in words {
+            self.trie.del_word(word);
         }
     }
 
@@ -390,6 +388,12 @@ impl Filter {
     /// Returns an error if the noise pattern is invalid.
     pub fn remove_noise(&self, text: &str) -> String {
         self.noise.replace_all(text, "").to_string()
+    }
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

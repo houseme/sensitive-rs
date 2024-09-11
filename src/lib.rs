@@ -23,28 +23,26 @@
 //! ```rust
 //! use sensitive_rs::filter::Filter;
 //!
-//! fn main() {
-//!     // Create a new Filter
-//!     let mut filter = Filter::new();
-//!     filter.add_word("bad");
-//!     filter.add_word("worse");
+//! // Create a new Filter
+//! let mut filter = Filter::new();
+//! filter.add_word("bad");
+//! filter.add_word("worse");
 //!
-//!     // Find sensitive words
-//!     let result = filter.find_in("This is bad.");
-//!     assert_eq!(result, (true, "bad".to_string()));
+//! // Find sensitive words
+//! let result = filter.find_in("This is bad.");
+//! assert_eq!(result, (true, "bad".to_string()));
 //!
-//!     // Validate text
-//!     let result = filter.validate("This is worse.");
-//!     assert_eq!(result, (true, "worse".to_string()));
+//! // Validate text
+//! let result = filter.validate("This is worse.");
+//! assert_eq!(result, (true, "worse".to_string()));
 //!
-//!     // Filter sensitive words
-//!     let filtered_text = filter.filter("This is bad and worse.");
-//!     assert_eq!(filtered_text, "This is  and .");
+//! // Filter sensitive words
+//! let filtered_text = filter.filter("This is bad and worse.");
+//! assert_eq!(filtered_text, "This is  and .");
 //!
-//!     // Replace sensitive words
-//!     let replaced_text = filter.replace("This is bad and worse.", '*');
-//!     assert_eq!(replaced_text, "This is *** and *****.");
-//! }
+//! // Replace sensitive words
+//! let replaced_text = filter.replace("This is bad and worse.", '*');
+//! assert_eq!(replaced_text, "This is *** and *****.");
 //! ```
 //!
 //! ## Documentation

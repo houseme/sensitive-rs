@@ -259,10 +259,10 @@ impl Trie {
         let mut current = self.root.clone();
         let mut last_match = None;
         let mut matched = String::new();
-        let mut chars = content.chars();
+        let chars = content.chars();
         let mut i = 0;
 
-        while let Some(ch) = chars.next() {
+        for ch in chars {
             let next = {
                 let children = current.children.read().unwrap();
                 children.get(&ch).cloned()
@@ -456,6 +456,12 @@ impl Trie {
             }
         }
         result
+    }
+}
+
+impl Default for Trie {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
