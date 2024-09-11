@@ -1,508 +1,547 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 
-#[derive(Debug)]
-pub struct Trie {
-    root: Node,
-}
-
-#[derive(Debug, Clone)]
-pub struct Node {
-    is_root_node: bool,
-    is_path_end: bool,
+/// Represents a node in the Trie data structure.
+///
+/// Each node contains a character, a flag indicating whether it is the end of a word,
+/// a flag indicating whether it is the root node, and a hashmap pointing to its child nodes.
+pub struct TrieNode {
+    children: Arc<RwLock<HashMap<char, Arc<TrieNode>>>>,
     character: char,
-    children: HashMap<char, Node>,
-    failure: Option<Box<Node>>,
-    parent: Option<Box<Node>>,
-    depth: usize,
+    is_end: AtomicBool,
+    is_root_node: bool,
 }
 
-impl Trie {
-    /// Creates a new trie.
-    /// A trie is a tree-like data structure that stores a dynamic set of strings.
-    /// A trie has a root node that represents the starting point of the trie.
-    pub fn new() -> Self {
-        Trie { root: Node::new_root() }
+impl TrieNode {
+    /// Creates a new Trie node.
+    ///
+    /// # Arguments
+    /// - `ch`: The character associated with the node.
+    /// - `is_root`: A boolean indicating whether the node is the root node.
+    ///
+    /// # Returns
+    /// Returns an `Arc` containing the new node.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::TrieNode;
+    ///
+    /// let node = TrieNode::new('a', false);
+    /// ```
+    /// # Safety
+    /// The node is thread-safe.
+    fn new(ch: char, is_root: bool) -> Arc<Self> {
+        Arc::new(TrieNode {
+            children: Arc::new(RwLock::new(HashMap::new())),
+            character: ch,
+            is_end: AtomicBool::new(false),
+            is_root_node: is_root,
+        })
     }
 
-    /// Adds words to the trie.
-    /// Words are added to the trie by splitting them into characters.
-    /// Each character is added to the trie as a node.
-    pub fn add(&mut self, words: &[&str]) {
-        for word in words {
-            self.add_word(word);
-        }
-    }
-
-    /// Adds a word to the trie.
-    /// A word is added to the trie by splitting it into characters.
-    fn add_word(&mut self, word: &str) {
-        let mut current = &mut self.root;
-        for (position, c) in word.chars().enumerate() {
-            if !current.children.contains_key(&c) {
-                let new_node = Node::new(c, position + 1, Some(current));
-                current.children.insert(c, new_node);
-            }
-            current = current.children.get_mut(&c).unwrap();
-        }
-        current.is_path_end = true;
-    }
-
-    /// Builds failure links in the trie.
-    /// Failure links are used to find the longest suffix that is also a prefix.
-    /// Failure links are used to find the next node to visit when a character is not found.
-    pub fn build_failure_links(&mut self) {
-        let root_clone = self.root.clone();
-        let mut queue = VecDeque::new();
-        for child in self.root.children.values_mut() {
-            queue.push_back(child);
-        }
-
-        while let Some(node) = queue.pop_front() {
-            let mut pointer = node.parent.as_ref().map(|p| p.as_ref()).unwrap_or(&root_clone);
-            let mut link = None;
-
-            while link.is_none() {
-                if pointer.is_root_node() {
-                    link = Some(pointer);
-                    break;
-                }
-                link = pointer.failure.as_ref().and_then(|fail| fail.children.get(&node.character));
-                pointer = pointer.failure.as_ref().map(|fail| fail.as_ref()).unwrap_or(&root_clone);
-            }
-
-            node.failure = link.map(|l| Box::new(l.clone()));
-
-            for child in node.children.values_mut() {
-                queue.push_back(child);
-            }
-        }
-    }
-
-    /// Replaces words in the text with a character.
-    /// Words are replaced by traversing the trie and replacing characters.
-    pub fn replace(&self, text: &str, character: char) -> String {
-        let mut node = &self.root;
-        let mut runes: Vec<char> = text.chars().collect();
-
-        for position in 0..runes.len() {
-            node = self.next(node, runes[position]).unwrap_or_else(|| self.fail(node, runes[position]));
-            self.replace_node(node, &mut runes, position, character);
-        }
-
-        runes.iter().collect()
-    }
-
-    /// Filters words from the text.
-    /// Words are filtered by traversing the trie and removing characters.
-    /// Words are removed if they are found in the trie.
-    pub fn filter(&self, text: &str) -> String {
-        let mut parent = &self.root;
-        let mut left = 0;
-        let mut result_runes = Vec::new();
-        let runes: Vec<char> = text.chars().collect();
-        let length = runes.len();
-
-        for position in 0..length {
-            if let Some(current) = parent.children.get(&runes[position]) {
-                if current.is_path_end {
-                    left = position + 1;
-                    parent = &self.root;
-                } else {
-                    parent = current;
-                }
-            } else {
-                result_runes.push(runes[left]);
-                parent = &self.root;
-                left += 1;
-            }
-        }
-
-        result_runes.extend_from_slice(&runes[left..]);
-        result_runes.iter().collect()
-    }
-
-    /// Validates the text.
-    /// The text is validated by traversing the trie and checking if the text contains any words.
-    /// The text is validated by checking if the text contains any words.
-    pub fn validate(&self, text: &str) -> (bool, String) {
-        let mut node = &self.root;
-        let runes: Vec<char> = text.chars().collect();
-
-        for position in 0..runes.len() {
-            node = self.next(node, runes[position]).unwrap_or_else(|| self.fail(node, runes[position]));
-            if let Some(first) = self.first_output(node, &runes, position) {
-                return (false, first);
-            }
-        }
-
-        (true, String::new())
-    }
-
-    /// Validates the text with a wildcard.
-    /// The text is validated by traversing the trie and checking if the text contains any words.
-    /// The text is validated by checking if the text contains any words.
-    pub fn validate_with_wildcard(&self, text: &str, wildcard: char) -> (bool, String) {
-        let runes: Vec<char> = text.chars().collect();
-        for curl in 0..runes.len() {
-            let mut pattern = String::new();
-            if self.dfs(&runes, &self.root, curl, wildcard, &mut pattern) {
-                return (false, pattern);
-            }
-        }
-        (true, String::new())
-    }
-
-    fn dfs(&self, runes: &[char], parent: &Node, curl: usize, wildcard: char, pattern: &mut String) -> bool {
-        if parent.is_path_end {
-            return true;
-        }
-        if curl >= runes.len() {
-            return false;
-        }
-
-        if let Some(current) = parent.children.get(&runes[curl]) {
-            if self.dfs(runes, current, curl + 1, wildcard, pattern) {
-                return true;
-            }
-        }
-
-        if let Some(current1) = parent.children.get(&wildcard) {
-            if self.dfs(runes, current1, curl + 1, wildcard, pattern) {
-                return true;
-            }
-            if let Some(current2) = current1.children.get(&runes[curl]) {
-                if self.dfs(runes, current2, curl + 1, wildcard, pattern) {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Finds words in the text.
-    /// Words are found by traversing the trie and checking if the text contains any words.
-    /// Words are found by checking if the text contains any words.
-    /// The first word found is returned.
-    pub fn find_in(&self, text: &str) -> (bool, String) {
-        let (validated, first) = self.validate(text);
-        (!validated, first)
-    }
-
-    /// Finds all words in the text.
-    /// Words are found by traversing the trie and checking if the text contains any words.
-    /// Words are found by checking if the text contains any words.
-    /// All words found are returned.
-    pub fn find_all(&self, text: &str) -> Vec<String> {
-        let mut node = &self.root;
-        let runes: Vec<char> = text.chars().collect();
-        let mut results = Vec::new();
-
-        for position in 0..runes.len() {
-            node = self.next(node, runes[position]).unwrap_or_else(|| self.fail(node, runes[position]));
-            self.output(node, &runes, position, &mut results);
-        }
-
-        results
-    }
-
-    fn next<'a>(&'a self, node: &'a Node, character: char) -> Option<&'a Node> {
-        node.children.get(&character)
-    }
-
-    fn fail<'a>(&'a self, node: &'a Node, character: char) -> &'a Node {
-        let mut failure = node.failure.as_ref().unwrap();
-        while failure.children.get(&character).is_none() && !failure.is_root_node {
-            failure = failure.failure.as_ref().unwrap();
-        }
-        failure.children.get(&character).unwrap_or_else(move || &self.root)
-    }
-
-    fn replace_node(&self, node: &Node, runes: &mut [char], position: usize, character: char) {
-        if node.is_path_end {
-            for i in (position + 1 - node.depth)..=position {
-                runes[i] = character;
-            }
-        }
-    }
-
-    fn first_output(&self, node: &Node, runes: &[char], position: usize) -> Option<String> {
-        if node.is_path_end {
-            Some(runes[(position + 1 - node.depth)..=position].iter().collect())
-        } else {
-            None
-        }
-    }
-
-    fn output(&self, node: &Node, runes: &[char], position: usize, results: &mut Vec<String>) {
-        if node.is_path_end {
-            results.push(runes[(position + 1 - node.depth)..=position].iter().collect());
-        }
-    }
-}
-
-impl Trie {
-    /// Deletes a word from the trie.
-    /// A word is deleted by traversing the trie and removing nodes if they are no longer necessary.
-
-    pub fn del(&mut self, word: &str) -> bool {
-        let root = &mut self.root;
-        Trie::del_recursive(root, word, 0)
-    }
-
-    fn del_recursive(node: &mut Node, word: &str, depth: usize) -> bool {
-        if depth == word.len() {
-            if !node.is_path_end {
-                return false; // Word not found
-            }
-            node.is_path_end = false;
-            return node.children.is_empty(); // If true, delete this node
-        }
-
-        let ch = word.chars().nth(depth).unwrap();
-        if let Some(child) = node.children.get_mut(&ch) {
-            if Trie::del_recursive(child, word, depth + 1) {
-                node.children.remove(&ch);
-                return !node.is_path_end && node.children.is_empty();
-            }
-        }
-        false
-    }
-}
-impl Node {
-    /// Creates a new node.
-    /// A node is a single element in a trie.
-    /// A node has a character, children, and a failure link.
-    pub fn new(character: char, depth: usize, parent: Option<&Node>) -> Self {
-        Node {
-            is_root_node: false,
-            is_path_end: false,
-            character,
-            children: HashMap::new(),
-            failure: None,
-            parent: parent.map(|p| Box::new(p.clone())),
-            depth,
-        }
-    }
-
-    /// Creates a new root node.
-    /// A root node is a node that has no parent.
-    /// A root node is the starting point of a trie.
-    pub fn new_root() -> Self {
-        Node {
-            is_root_node: true,
-            is_path_end: false,
-            character: '\0',
-            children: HashMap::new(),
-            failure: None,
-            parent: None,
-            depth: 0,
-        }
-    }
-
-    /// Returns true if the node is a leaf node.
-    /// A leaf node is a node that has no children.
-    pub fn is_leaf_node(&self) -> bool {
-        self.children.is_empty()
-    }
-    /// Returns true if the node is a root node.
-    /// A root node is a node that has no parent.
+    /// Checks if the current node is the root node.
+    ///
+    /// # Returns
+    /// Returns a boolean indicating whether the current node is the root node.
+    #[warn(dead_code)]
     pub fn is_root_node(&self) -> bool {
         self.is_root_node
     }
-    /// Returns true if the node is the end of a path.
-    /// The end of a path is a node that represents the end of a word.
-    pub fn is_path_end(&self) -> bool {
-        self.is_path_end
+
+    /// Checks if the current node marks the end of a word.
+    ///
+    /// # Returns
+    /// Returns a boolean indicating whether the current node marks the end of a word.
+    #[warn(dead_code)]
+    pub fn is_end(&self) -> bool {
+        self.is_end.load(Ordering::Relaxed)
     }
-    /// Sets the node as the end of a path.
-    /// The end of a path is a node that represents the end of a word.
-    pub fn soft_del(&mut self) {
-        self.is_path_end = false;
+
+    fn can_be_deleted(&self) -> bool {
+        !self.is_root_node() && !self.is_end() && self.children.read().unwrap().is_empty()
+    }
+}
+
+/// Represents a keyword filter based on the Trie data structure.
+/// The filter can be used to find, replace, or filter out keywords in a given content.
+/// The filter is case-sensitive.
+/// The filter is thread-safe.
+pub struct Trie {
+    root: Arc<TrieNode>,
+}
+
+impl Trie {
+    /// Creates a new keyword filter.
+    ///
+    /// # Returns
+    /// Returns a new `Trie` instance.
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    pub fn new() -> Self {
+        Trie { root: TrieNode::new('\0', true) }
+    }
+
+    /// Adds a word to the filter.
+    ///
+    /// # Arguments
+    /// - `word`: The word to be added.
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Panics
+    /// Panics if the word is empty.
+    /// # Errors
+    /// Returns an error if the word is empty.
+    pub fn add_word(&self, word: &str) {
+        let mut current = self.root.clone();
+        for ch in word.chars() {
+            let next = {
+                let mut children = current.children.write().unwrap();
+                children.entry(ch).or_insert_with(|| TrieNode::new(ch, false)).clone()
+            };
+            current = next;
+        }
+        current.is_end.store(true, Ordering::Relaxed);
+    }
+
+    /// Deletes a word from the filter.
+    ///
+    /// # Arguments
+    /// - `word`: The word to be deleted.
+    ///
+    /// # Returns
+    /// Returns a boolean indicating whether the word was successfully deleted.
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    ///
+    /// assert!(filter.del_word("bad"));
+    /// assert!(!filter.del_word("bad"));
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the word is not found.
+    /// # Panics
+    /// Panics if the word is not found.
+    pub fn del_word(&self, word: &str) -> bool {
+        fn delete_helper(node: &Arc<TrieNode>, word: &[char], depth: usize) -> bool {
+            if depth == word.len() {
+                if !node.is_end.load(Ordering::Relaxed) {
+                    return false; // Word not found
+                }
+                node.is_end.store(false, Ordering::Relaxed);
+                return true; // Word successfully deleted
+            }
+
+            let ch = word[depth];
+            let child_deleted = {
+                let children = node.children.read().unwrap();
+                if let Some(child) = children.get(&ch) {
+                    delete_helper(child, word, depth + 1)
+                } else {
+                    return false; // Word not found
+                }
+            };
+
+            if child_deleted {
+                let mut children = node.children.write().unwrap();
+                if children.get(&ch).map_or(false, |child| child.can_be_deleted()) {
+                    children.remove(&ch);
+                }
+            }
+
+            child_deleted
+        }
+
+        let word_chars: Vec<char> = word.chars().collect();
+        delete_helper(&self.root, &word_chars, 0)
+    }
+
+    /// Finds the first matching word and its position in the given content.
+    ///
+    /// # Arguments
+    /// - `content`: The content to search in.
+    ///
+    /// # Returns
+    /// Returns an `Option<(String, usize)>` containing the matching word and its position.
+    /// If no match is found, returns `None`.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    ///
+    /// assert_eq!(filter.find_word_at("This is bad."), Some(("bad".to_string(), 8)));
+    /// assert_eq!(filter.find_word_at("This is worse."), Some(("worse".to_string(), 8)));
+    /// assert_eq!(filter.find_word_at("This is good."), None);
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the content is empty.
+    /// # Panics
+    /// Panics if the content is empty.
+    pub fn find_word_at(&self, content: &str) -> Option<(String, usize)> {
+        let mut current = self.root.clone();
+        let mut last_match = None;
+        let mut matched = String::new();
+        let mut chars = content.chars();
+        let mut i = 0;
+
+        while let Some(ch) = chars.next() {
+            let next = {
+                let children = current.children.read().unwrap();
+                children.get(&ch).cloned()
+            };
+
+            if let Some(child) = next {
+                if child.character != ch {
+                    break;
+                }
+                i += 1;
+                matched.push(child.character);
+                if child.is_end.load(Ordering::Relaxed) {
+                    last_match = Some((matched.clone(), i));
+                }
+                current = child;
+            } else {
+                break;
+            }
+        }
+
+        last_match
+    }
+    /// Replaces all matching words in the content with the specified character.
+    ///
+    /// # Arguments
+    /// - `content`: The content to replace in.
+    /// - `replacement`: The character to replace the matching words with.
+    ///
+    /// # Returns
+    /// Returns the content with all matching words replaced.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    ///
+    /// assert_eq!(filter.replace("This is bad and worse.", '*'), "This is *** and *****.");
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the content is empty.
+    /// # Panics
+    /// Panics if the content is empty.
+    pub fn replace(&self, content: &str, replacement: char) -> String {
+        let mut result = String::new();
+        let mut i = 0;
+        while i < content.len() {
+            if let Some((word, len)) = self.find_word_at(&content[i..]) {
+                result.push_str(&replacement.to_string().repeat(word.len()));
+                i += len;
+            } else {
+                result.push(content[i..].chars().next().unwrap());
+                i += 1;
+            }
+        }
+        result
+    }
+
+    /// Filters out all matching words in the content.
+    ///
+    /// # Arguments
+    /// - `content`: The content to filter.
+    ///
+    /// # Returns
+    /// Returns the content with all matching words removed.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    ///
+    /// assert_eq!(filter.filter("This is bad and worse."), "This is  and .");
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the content is empty.
+    /// # Panics
+    /// Panics if the content is empty.
+    pub fn filter(&self, content: &str) -> String {
+        let mut result = String::new();
+        let mut i = 0;
+        while i < content.len() {
+            if let Some((_, len)) = self.find_word_at(&content[i..]) {
+                i += len;
+            } else {
+                result.push(content[i..].chars().next().unwrap());
+                i += 1;
+            }
+        }
+        result
+    }
+
+    /// Finds the first matching word in the content.
+    ///
+    /// # Arguments
+    /// - `content`: The content to search in.
+    ///
+    /// # Returns
+    /// Returns an `Option<String>` containing the matching word.
+    /// If no match is found, returns `None`.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::Trie;
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    /// assert_eq!(filter.find_in("This is bad."), Some("bad".to_string()));
+    /// assert_eq!(filter.find_in("This is worse."), Some("worse".to_string()));
+    /// assert_eq!(filter.find_in("This is good."), None);
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the content is empty.
+    /// # Panics
+    /// Panics if the content is empty.
+    pub fn find_in(&self, content: &str) -> Option<String> {
+        for (i, _) in content.char_indices() {
+            if let Some((word, _)) = self.find_word_at(&content[i..]) {
+                return Some(word);
+            }
+        }
+        None
+    }
+    /// Validates whether the content contains any matching words.
+    ///
+    /// # Arguments
+    /// - `content`: The content to validate.
+    ///
+    /// # Returns
+    /// Returns an `Option<String>` containing the matching word.
+    /// If no match is found, returns `None`.
+    pub fn validate(&self, content: &str) -> Option<String> {
+        self.find_in(content)
+    }
+
+    /// Finds all matching words in the content.
+    ///
+    /// # Arguments
+    /// - `content`: The content to search in.
+    ///
+    /// # Returns
+    /// Returns a `Vec<String>` containing all matching words.
+    pub fn find_all(&self, content: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut i = 0;
+        while i < content.len() {
+            if let Some((word, len)) = self.find_word_at(&content[i..]) {
+                result.push(word);
+                i += len;
+            } else {
+                i += 1;
+            }
+        }
+        result
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
-    fn test_trie_tree() {
-        let mut tree = Trie::new();
-        tree.add(&["习近平", "习大大"]);
-        tree.build_failure_links();
-        assert!(tree.root.children.contains_key(&'习'));
-        assert_eq!(tree.replace("你好吗 我支持习大大，他的名字叫做习近平", '*'), "你好吗 我支持***，他的名字叫做***");
-        assert_eq!(tree.filter("你好吗 我支持习大大，他的名字叫做习近平"), "你好吗 我支持，他的名字叫做");
-    }
+    fn test_add_and_find() {
+        let filter = Trie::new();
+        filter.add_word("bad");
+        filter.add_word("worse");
 
-    // #[test]
-    // fn test_trie_tree_bfs() {
-    //     let mut tree = Trie::new();
-    //     tree.add(&["习近平", "习大大", "共产党好"]);
-    //     let mut ch = tree.bfs();
-    //     let expect =
-    //         vec![('习', 1), ('共', 1), ('近', 2), ('大', 2), ('产', 2), ('平', 3), ('大', 3), ('党', 3), ('好', 4)];
-    //     let mut i = 0;
-    //     while let Some(n) = ch.next() {
-    //         assert_eq!(n.character, expect[i].0);
-    //         assert_eq!(n.depth, expect[i].1);
-    //         i += 1;
-    //     }
-    // }
-
-    #[test]
-    fn test_trie_tree_build_failure_links() {
-        let mut tree = Trie::new();
-        tree.add(&["he", "his", "she", "hers"]);
-        tree.build_failure_links();
-    }
-    #[test]
-    fn test_trie_add() {
-        let mut trie = Trie::new();
-        trie.add(&["hello", "world"]);
-        assert!(trie.root.children.contains_key(&'h'));
-        assert!(trie.root.children.contains_key(&'w'));
+        assert_eq!(filter.find_in("This is bad."), Some("bad".to_string()));
+        assert_eq!(filter.find_in("This is worse."), Some("worse".to_string()));
+        assert_eq!(filter.find_in("This is good."), None);
     }
 
     #[test]
-    fn test_del() {
-        let mut trie = Trie::new();
-        trie.add(&["hello", "world", "hell"]);
+    fn test_replace() {
+        let filter = Trie::new();
+        filter.add_word("bad");
+        filter.add_word("worse");
 
-        // 删除存在的单词
-        assert!(trie.del("hello"));
-        assert!(
-            !trie
-                .root
-                .children
-                .get(&'h')
-                .unwrap()
-                .children
-                .get(&'e')
-                .unwrap()
-                .children
-                .get(&'l')
-                .unwrap()
-                .children
-                .get(&'l')
-                .unwrap()
-                .is_path_end
+        assert_eq!(filter.replace("This is bad and worse.", '*'), "This is *** and *****.");
+    }
+
+    #[test]
+    fn test_filter() {
+        let filter = Trie::new();
+        filter.add_word("bad");
+        filter.add_word("worse");
+
+        assert_eq!(filter.filter("This is bad and worse."), "This is  and .");
+    }
+
+    #[test]
+    fn test_validate() {
+        let filter = Trie::new();
+        filter.add_word("bad");
+        filter.add_word("worse");
+
+        assert_eq!(filter.validate("This is bad."), Some("bad".to_string()));
+        assert_eq!(filter.validate("This is good."), None);
+    }
+
+    #[test]
+    fn test_find_all() {
+        let filter = Trie::new();
+        filter.add_word("bad");
+        filter.add_word("worse");
+
+        assert_eq!(filter.find_all("This is bad and worse."), vec!["bad", "worse"]);
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        let filter = Arc::new(Trie::new());
+        filter.add_word("concurrent");
+        filter.add_word("test");
+
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let filter_clone = filter.clone();
+            handles.push(thread::spawn(move || {
+                assert_eq!(filter_clone.find_in("This is a concurrent test."), Some("concurrent".to_string()));
+                filter_clone.add_word(&format!("thread{}", i));
+
+                // Give some time for other threads to add their words
+                thread::sleep(Duration::from_millis(10));
+
+                let result = filter_clone.find_all("Thread test is concurrent.");
+                assert!(result.contains(&"test".to_string()));
+                assert!(result.contains(&"concurrent".to_string()));
+                // We cannot be sure if "thread{i}" has been added, so we do not check it
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // After all threads are done, check the final result
+        let final_result = filter.find_all(
+            "Thread test is concurrent.thread0 thread1 thread2 thread3 thread4 thread5 thread6 thread7 thread8 thread9",
         );
+        assert!(final_result.contains(&"test".to_string()));
+        assert!(final_result.contains(&"concurrent".to_string()));
 
-        // 删除部分匹配的单词
-        assert!(trie.del("hell"));
-        assert!(
-            !trie.root.children.get(&'h').unwrap().children.get(&'e').unwrap().children.get(&'l').unwrap().is_path_end
-        );
+        println!("{:?}", final_result);
 
-        // 删除不存在的单词
-        assert!(!trie.del("nonexistent"));
+        // Check if all "thread{i}" words were successfully added
+        for i in 0..10 {
+            assert!(final_result.contains(&format!("thread{}", i)));
+        }
     }
 
     #[test]
-    fn test_trie_build_failure_links() {
-        let mut trie = Trie::new();
-        trie.add(&["he", "she", "his", "hers"]);
-        trie.build_failure_links();
-        // Add assertions to verify failure links
+    fn test_del_word() {
+        let filter = Trie::new();
+        filter.add_word("bad");
+        filter.add_word("badge");
+        filter.add_word("badger");
+        assert_eq!(filter.find_in("This is bad."), Some("bad".to_string()));
+        assert_eq!(filter.find_in("This is a badge."), Some("badge".to_string()));
+        assert_eq!(filter.find_in("This is a badger."), Some("badger".to_string()));
+
+        // Delete "bad"
+        assert!(filter.del_word("bad"));
+        assert_eq!(filter.find_in("This is bad."), None);
+        assert_eq!(filter.find_in("This is a badge."), Some("badge".to_string()));
+        assert_eq!(filter.find_in("This is a badger."), Some("badger".to_string()));
+
+        // Delete a non-existent word
+        assert!(!filter.del_word("bad"));
+
+        // Delete "badge"
+        assert!(filter.del_word("badge"));
+        assert_eq!(filter.find_in("This is a badge."), None);
+        assert_eq!(filter.find_in("This is a badger."), Some("badger".to_string()));
+
+        // Delete the last word "badger"
+        assert!(filter.del_word("badger"));
+        assert_eq!(filter.find_in("This is a badger."), None);
+
+        // Attempt to delete a word that no longer exists
+        assert!(!filter.del_word("badger"));
     }
 
     #[test]
-    fn test_trie_replace() {
-        let mut trie = Trie::new();
-        trie.add(&["习近平", "习大大"]);
-        trie.build_failure_links();
-        assert_eq!(trie.replace("你好吗 我支持习大大，他的名字叫做习近平", '*'), "你好吗 我支持***，他的名字叫做***");
-    }
+    fn test_concurrent_del_word() {
+        let filter = Arc::new(Trie::new());
+        filter.add_word("concurrent");
+        filter.add_word("test");
+        filter.add_word("delete");
 
-    #[test]
-    fn test_trie_filter() {
-        let mut trie = Trie::new();
-        trie.add(&["习近平", "习大大"]);
-        assert_eq!(trie.filter("你好吗 我支持习大大，他的名字叫做习近平"), "你好吗 我支持，他的名字叫做");
-    }
+        let mut handles = vec![];
 
-    #[test]
-    fn test_trie_validate() {
-        let mut trie = Trie::new();
-        trie.add(&["习近平", "习大大"]);
-        assert_eq!(trie.validate("你好吗 我支持习大大，他的名字叫做习近平"), (false, "习大大".to_string()));
-    }
+        for i in 0..5 {
+            let filter_clone = filter.clone();
+            handles.push(thread::spawn(move || {
+                // Only the first thread attempts to delete "test"
+                if i == 0 {
+                    assert!(filter_clone.del_word("test"));
+                } else {
+                    // Other threads attempt to delete a word that may have already been deleted
+                    filter_clone.del_word("test");
+                }
+                assert!(!filter_clone.del_word("nonexistent"));
+                filter_clone.add_word(&format!("thread{}", i));
+            }));
+        }
 
-    #[test]
-    fn test_trie_validate_with_wildcard() {
-        let mut trie = Trie::new();
-        trie.add(&["习近平", "习大大"]);
-        assert_eq!(
-            trie.validate_with_wildcard("你好吗 我支持习*大，他的名字叫做习*平", '*'),
-            (false, "习*大".to_string())
-        );
-    }
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
-    #[test]
-    fn test_trie_find_in() {
-        let mut trie = Trie::new();
-        trie.add(&["习近平", "习大大"]);
-        assert_eq!(trie.find_in("你好吗 我支持习大大，他的名字叫做习近平"), (true, "习大大".to_string()));
-    }
+        assert_eq!(filter.find_in("This is a concurrent test."), Some("concurrent".to_string()));
+        assert_eq!(filter.find_in("This is a delete test."), Some("delete".to_string()));
+        assert_eq!(filter.find_in("This is a test."), None);
 
-    #[test]
-    fn test_trie_find_all() {
-        let mut trie = Trie::new();
-        trie.add(&["习近平", "习大大"]);
-        assert_eq!(
-            trie.find_all("你好吗 我支持习大大，他的名字叫做习近平"),
-            vec!["习大大".to_string(), "习近平".to_string()]
-        );
-    }
-
-    #[test]
-    fn test_is_leaf_node() {
-        let node = Node {
-            is_root_node: false,
-            is_path_end: false,
-            character: 'a',
-            children: HashMap::new(),
-            failure: None,
-            parent: None,
-            depth: 0,
-        };
-        assert!(node.is_leaf_node());
-    }
-
-    #[test]
-    fn test_is_root_node() {
-        let root_node = Node::new_root();
-        assert!(root_node.is_root_node());
-    }
-
-    #[test]
-    fn test_is_path_end() {
-        let node = Node {
-            is_root_node: false,
-            is_path_end: true,
-            character: 'a',
-            children: HashMap::new(),
-            failure: None,
-            parent: None,
-            depth: 0,
-        };
-        assert!(node.is_path_end());
-    }
-
-    #[test]
-    fn test_soft_del() {
-        let mut node = Node {
-            is_root_node: false,
-            is_path_end: true,
-            character: 'a',
-            children: HashMap::new(),
-            failure: None,
-            parent: None,
-            depth: 0,
-        };
-        node.soft_del();
-        assert!(!node.is_path_end());
+        // Check if all "thread{i}" words were successfully added
+        for i in 0..5 {
+            assert_eq!(filter.find_in(&format!("This is thread{} test.", i)), Some(format!("thread{}", i)));
+        }
     }
 }

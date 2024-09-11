@@ -1,18 +1,19 @@
 [package]
 name = "sensitive-rs"
 description = "Sensitive word search, verification, filtering and replacement."
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["houseme <housemecn@gmail.com>"]
 repository = "https://github.com/houseme/sensitive-rs"
 homepage = "https://houseme.github.io/sensitive-rs"
 documentation = "https://docs.rs/sensitive-rs"
-keywords = ["sensitive", "generate", "filter"]
+keywords = ["sensitive", "generate", "filter", "trie"]
 categories = ["memory-management", "encoding", "science", "algorithms"]
 readme = "README.md"
 # Crate build related
 exclude = ["tests/*", ".gitignore"]
+include = ["src/**", "dict/**", "Cargo.toml", "README.md"]
 rust-version = "1.67.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -22,6 +23,11 @@ debug = false
 
 [dependencies]
 regex = "1.10.6"
+reqwest = { version = "0.12", features = ["blocking"], optional = true }
+
+[features]
+default = []
+net = ["reqwest"]
 
 [dev-dependencies]
 anyhow = "1"
