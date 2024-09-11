@@ -169,7 +169,7 @@ impl Filter {
     /// Returns an error if the reader cannot be read.
     pub fn load<R: io::Read>(&mut self, reader: R) -> io::Result<()> {
         let buf_reader = BufReader::new(reader);
-        for word in buf_reader.lines().flatten() {
+        for word in buf_reader.lines().map_while(Result::ok) {
             self.trie.add_word(word.as_str());
         }
         Ok(())
