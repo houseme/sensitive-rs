@@ -14,8 +14,6 @@ use std::sync::{Arc, RwLock};
 ///
 /// let node = TrieNode::new('a', false);
 /// ```
-/// # Safety
-/// The node is thread-safe.
 /// # Errors
 /// Returns an error if the character is not a valid ASCII character.
 /// # Panics
@@ -43,8 +41,6 @@ impl TrieNode {
     ///
     /// let node = TrieNode::new('a', false);
     /// ```
-    /// # Safety
-    /// The node is thread-safe.
     ///
     /// # Panics
     /// Panics if the character is not a valid ASCII character.
@@ -71,9 +67,6 @@ impl TrieNode {
     /// assert!(node.is_root_node());
     /// ```
     ///
-    /// # Safety
-    /// The node is thread-safe.
-    ///
     /// # Panics
     /// Panics if the character is not a valid ASCII character.
     ///
@@ -96,9 +89,6 @@ impl TrieNode {
     ///
     /// assert!(!node.is_end());
     /// ```
-    ///
-    /// # Safety
-    /// The node is thread-safe.
     ///
     /// # Panics
     /// Panics if the character is not a valid ASCII character.
@@ -124,9 +114,9 @@ impl TrieNode {
 /// let filter = Trie::new();
 /// filter.add_word("bad");
 /// filter.add_word("worse");
+///
+/// assert_eq!(filter.find_in("This is bad."), Some("bad".to_string()));
 /// ```
-/// # Safety
-/// The filter is thread-safe.
 /// # Errors
 /// Returns an error if the word is empty.
 /// # Panics
@@ -147,8 +137,10 @@ impl Trie {
     ///
     /// let filter = Trie::new();
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the word is empty.
+    /// # Panics
+    /// Panics if the word is empty.
     pub fn new() -> Self {
         Trie { root: TrieNode::new('\0', true) }
     }
@@ -165,8 +157,6 @@ impl Trie {
     /// filter.add_word("bad");
     /// filter.add_word("worse");
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Panics
     /// Panics if the word is empty.
     /// # Errors
@@ -201,8 +191,6 @@ impl Trie {
     /// assert!(filter.del_word("bad"));
     /// assert!(!filter.del_word("bad"));
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Errors
     /// Returns an error if the word is not found.
     /// # Panics
@@ -210,6 +198,7 @@ impl Trie {
     pub fn del_word(&self, word: &str) -> bool {
         fn delete_helper(node: &Arc<TrieNode>, word: &[char], depth: usize) -> bool {
             if depth == word.len() {
+                // If the word is not found
                 if !node.is_end.load(Ordering::Relaxed) {
                     return false; // Word not found
                 }
@@ -258,16 +247,10 @@ impl Trie {
     /// filter.add_word("bad");
     /// filter.add_word("worse");
     ///
-    /// println!("{:?}", filter.find_word_at("This is bad."));
-    /// println!("{:?}", filter.find_word_at("This is worse."));
-    /// println!("{:?}", filter.find_word_at("This is good."));
-    ///
     /// assert_eq!(filter.find_word_at("This is bad."), None);
     /// assert_eq!(filter.find_word_at("This is worse."), None);
     /// assert_eq!(filter.find_word_at("This is good."), None);
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Errors
     /// Returns an error if the content is empty.
     /// # Panics
@@ -321,8 +304,6 @@ impl Trie {
     ///
     /// assert_eq!(filter.replace("This is bad and worse.", '*'), "This is *** and *****.");
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Errors
     /// Returns an error if the content is empty.
     /// # Panics
@@ -360,8 +341,6 @@ impl Trie {
     ///
     /// assert_eq!(filter.filter("This is bad and worse."), "This is  and .");
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Errors
     /// Returns an error if the content is empty.
     /// # Panics
@@ -401,8 +380,6 @@ impl Trie {
     /// assert_eq!(filter.find_in("This is worse."), Some("worse".to_string()));
     /// assert_eq!(filter.find_in("This is good."), None);
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Errors
     /// Returns an error if the content is empty.
     /// # Panics
@@ -435,8 +412,6 @@ impl Trie {
     /// assert_eq!(filter.validate("This is bad."), Some("bad".to_string()));
     /// assert_eq!(filter.validate("This is good."), None);
     /// ```
-    /// # Safety
-    /// The filter is thread-safe.
     /// # Errors
     /// Returns an error if the content is empty.
     /// # Panics
@@ -463,9 +438,6 @@ impl Trie {
     ///
     /// assert_eq!(filter.find_all("This is bad and worse."), vec!["bad", "worse"]);
     /// ```
-    ///
-    /// # Safety
-    /// The filter is thread-safe.
     ///
     /// # Errors
     /// Returns an error if the content is empty.

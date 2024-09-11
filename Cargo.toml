@@ -8,7 +8,7 @@ authors = ["houseme <housemecn@gmail.com>"]
 repository = "https://github.com/houseme/sensitive-rs"
 homepage = "https://houseme.github.io/sensitive-rs"
 documentation = "https://docs.rs/sensitive-rs"
-keywords = ["sensitive", "generate", "filter", "trie"]
+keywords = ["sensitive", "generate", "filter", "trie", "replace-verification"]
 categories = ["memory-management", "encoding", "science", "algorithms"]
 readme = "README.md"
 # Crate build related

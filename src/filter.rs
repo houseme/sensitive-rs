@@ -28,12 +28,16 @@ use std::time::Duration;
 /// Returns an error if the noise pattern is invalid.
 /// # Safety
 /// The noise pattern must be a valid regular expression.
+///
+///
 /// # Examples
 /// ```
 /// use sensitive_rs::filter::Filter;
 ///
 /// let mut filter = Filter::new();
 /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
+///
+/// assert_eq!(filter.remove_noise("I |have& %an$ @apple*"), "Ihaveanapple");
 /// ```
 /// # Panics
 /// Panics if the pattern is invalid.
@@ -55,10 +59,9 @@ impl Filter {
     /// # Example
     /// ```
     /// use sensitive_rs::filter::Filter;
+    ///
     /// let mut filter = Filter::new();
     /// ```
-    /// # Safety
-    /// The filter is not thread-safe.
     /// # Returns
     /// Returns a new filter object.
     pub fn new() -> Self {
@@ -89,6 +92,7 @@ impl Filter {
     /// # Example
     /// ```
     /// use sensitive_rs::filter::Filter;
+    ///
     /// let mut filter = Filter::new();
     /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
     /// ```
@@ -102,13 +106,6 @@ impl Filter {
     /// * `()` - Returns nothing.
     /// # Safety
     /// The pattern must be a valid regular expression.
-    /// # Examples
-    /// ```
-    /// use sensitive_rs::filter::Filter;
-    ///
-    /// let mut filter = Filter::new();
-    /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
-    /// ```
     pub fn update_noise_pattern(&mut self, pattern: &str) {
         self.noise = Regex::new(pattern).unwrap();
     }
@@ -170,8 +167,6 @@ impl Filter {
     /// * `()` - Returns nothing.
     /// # Errors
     /// Returns an error if the reader cannot be read.
-    /// # Safety
-    /// The reader must be valid.
     pub fn load<R: io::Read>(&mut self, reader: R) -> io::Result<()> {
         let buf_reader = BufReader::new(reader);
         for line in buf_reader.lines() {
@@ -194,8 +189,6 @@ impl Filter {
     /// * `words` - The word to add to the filter.
     /// # Returns
     /// * `()` - Returns nothing.
-    /// # Safety
-    /// The word must be valid.
     pub fn add_word(&mut self, words: &str) {
         self.trie.add_word(words);
     }
@@ -213,8 +206,6 @@ impl Filter {
     /// * `words` - The words to add to the filter.
     /// # Returns
     /// * `()` - Returns nothing.
-    /// # Safety
-    /// The words must be valid.
     pub fn add_words(&mut self, words: &[&str]) {
         for i in 0..words.len() {
             self.trie.add_word(words[i]);
@@ -234,8 +225,6 @@ impl Filter {
     /// * `words` - The word to delete from the filter.
     /// # Returns
     /// * `()` - Returns nothing.
-    /// # Safety
-    /// The word must be valid.
     /// # Errors
     /// Returns an error if the word is not found.
     pub fn del_word(&mut self, words: &str) {
@@ -255,8 +244,6 @@ impl Filter {
     /// * `words` - The words to delete from the filter.
     /// # Returns
     /// * `()` - Returns nothing.
-    /// # Safety
-    /// The words must be valid.
     /// # Errors
     /// Returns an error if the word is not found.
     pub fn del_words(&mut self, words: &[&str]) {
@@ -279,8 +266,6 @@ impl Filter {
     /// * `text` - The text to filter words from.
     /// # Returns
     /// * `String` - The text with words filtered out.
-    /// # Safety
-    /// The text must be valid.
     pub fn filter(&self, text: &str) -> String {
         self.trie.filter(text)
     }
@@ -300,9 +285,6 @@ impl Filter {
     /// * `repl` - The character to replace words with.
     /// # Returns
     /// * `String` - The text with words replaced.
-    ///
-    /// # Safety
-    /// The text must be valid.
     pub fn replace(&self, text: &str, repl: char) -> String {
         self.trie.replace(text, repl)
     }
@@ -321,8 +303,6 @@ impl Filter {
     /// * `text` - The text to find the word in.
     /// # Returns
     /// * `(bool, String)` - A tuple containing a boolean and the word found.
-    /// # Safety
-    /// The text must be valid.
     ///
     /// # Errors
     /// Returns an error if the word is not found.
@@ -352,8 +332,6 @@ impl Filter {
     /// * `text` - The text to find words in.
     /// # Returns
     /// * `Vec<String>` - A vector containing the words found.
-    /// # Safety
-    /// The text must be valid.
     /// # Errors
     /// Returns an error if the word is not found.
     /// # Panics
@@ -376,8 +354,6 @@ impl Filter {
     /// * `text` - The text to validate.
     /// # Returns
     /// * `(bool, String)` - A tuple containing a boolean and the word found.
-    /// # Safety
-    /// The text must be valid.
     /// # Errors
     /// Returns an error if the word is not found.
     /// # Panics

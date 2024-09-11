@@ -1,6 +1,6 @@
 # Sensitive-rs
 
-[中文] [English](README.md)
+中文 [English](README.md)
 
 [![Build](https://github.com/houseme/sensitive-rs/workflows/Build/badge.svg)](https://github.com/houseme/sensitive-rs/actions?query=workflow%3ABuild)
 [![crates.io](https://img.shields.io/crates/v/sensitive-rs.svg)](https://crates.io/crates/sensitive-rs)
