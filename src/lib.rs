@@ -1,48 +1,62 @@
-/// This is the main file of the library.
-/// It contains the main logic of the library.
-/// # Examples
-/// ```
-/// use sensitive_rs::Filter;
-/// let mut filter = Filter::new();
-/// filter.update_noise_pattern(r"[\|\s&%$@*]+");
-/// filter.add_words(&["apple", "app", "banana"]);
-/// assert_eq!(filter.filter("I |have& %an$ @apple* and a banana"), "I have an and a");
-/// ```
-/// # Features
-/// - Add words to the filter
-/// - Remove words from the filter
-/// - Replace words in a string
-/// - Filter words from a string
-/// - Update noise pattern
-/// - Find words in a string
-/// - Find words in a string with their positions
-/// - Find words in a string with their positions and lengths
-/// - Find words in a string with their positions, lengths and values
-/// - Find words in a string with their positions, lengths, values and noise
-/// - Find words in a string with their positions, lengths, values, noise and noise positions
-///
-/// # Performance
-/// - The filter is implemented using a trie data structure.
-/// - The filter is case-insensitive.
-/// - The filter is fast and efficient.
-/// - The filter is thread-safe.
-/// - The filter is memory-efficient.
-///
-/// # Safety
-/// - The filter is safe to use.
-/// - The filter is safe to share across threads.
-/// - The filter is safe to use in a multi-threaded environment.
-/// - The filter is safe to use in a multi-threaded environment with multiple filters.
-///
-/// # Errors
-/// - The filter returns an error if the noise pattern is invalid.
-/// - The filter returns an error if the noise pattern is invalid and the noise pattern is updated.
-/// - The filter returns an error if the noise pattern is invalid and the noise pattern is updated with an invalid noise pattern.
-///
-/// # Panics
-/// - The filter panics if the noise pattern is invalid.
-/// - The filter panics if the noise pattern is invalid and the noise pattern is updated.
-///
-/// Each module contains a set of functions that can be used to interact with the filter.
-mod filter;
-mod trie;
+//! # Sensitive-rs
+//!
+//! `sensitive-rs` is a Rust library for finding, validating, filtering, and replacing sensitive words. It provides efficient algorithms to handle sensitive words, suitable for various application scenarios.
+//!
+//! ## Features
+//!
+//! - **Find**: Locate all sensitive words in a text.
+//! - **Validate**: Check if a text contains any sensitive words.
+//! - **Filter**: Remove sensitive words from a text.
+//! - **Replace**: Replace sensitive words in a text with specified characters.
+//!
+//! ## Installation
+//!
+//! Add the following dependency to your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! sensitive-rs = "0.1"
+//! ```
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use sensitive_rs::filter::Filter;
+//!
+//! fn main() {
+//!     // Create a new Filter
+//!     let mut filter = Filter::new();
+//!     filter.add_word("bad");
+//!     filter.add_word("worse");
+//!
+//!     // Find sensitive words
+//!     let result = filter.find_in("This is bad.");
+//!     assert_eq!(result, (true, "bad".to_string()));
+//!
+//!     // Validate text
+//!     let result = filter.validate("This is worse.");
+//!     assert_eq!(result, (true, "worse".to_string()));
+//!
+//!     // Filter sensitive words
+//!     let filtered_text = filter.filter("This is bad and worse.");
+//!     assert_eq!(filtered_text, "This is  and .");
+//!
+//!     // Replace sensitive words
+//!     let replaced_text = filter.replace("This is bad and worse.", '*');
+//!     assert_eq!(replaced_text, "This is *** and *****.");
+//! }
+//! ```
+//!
+//! ## Documentation
+//!
+//! For detailed documentation, please refer to [Documentation](https://docs.rs/sensitive-rs).
+//!
+//! ## License
+//!
+//!
+//! Licensed under either of
+//!
+//! * Apache License, Version 2.0, [LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0
+//! * MIT license [LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT
+pub mod filter;
+pub mod trie;

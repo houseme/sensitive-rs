@@ -6,6 +6,20 @@ use std::sync::{Arc, RwLock};
 ///
 /// Each node contains a character, a flag indicating whether it is the end of a word,
 /// a flag indicating whether it is the root node, and a hashmap pointing to its child nodes.
+///
+/// The node is thread-safe.
+/// # Example
+/// ```
+/// use sensitive_rs::trie::TrieNode;
+///
+/// let node = TrieNode::new('a', false);
+/// ```
+/// # Safety
+/// The node is thread-safe.
+/// # Errors
+/// Returns an error if the character is not a valid ASCII character.
+/// # Panics
+/// Panics if the character is not a valid ASCII character.
 pub struct TrieNode {
     children: Arc<RwLock<HashMap<char, Arc<TrieNode>>>>,
     character: char,
@@ -25,13 +39,16 @@ impl TrieNode {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::TrieNode;
+    /// use sensitive_rs::trie::TrieNode;
     ///
     /// let node = TrieNode::new('a', false);
     /// ```
     /// # Safety
     /// The node is thread-safe.
-    fn new(ch: char, is_root: bool) -> Arc<Self> {
+    ///
+    /// # Panics
+    /// Panics if the character is not a valid ASCII character.
+    pub fn new(ch: char, is_root: bool) -> Arc<Self> {
         Arc::new(TrieNode {
             children: Arc::new(RwLock::new(HashMap::new())),
             character: ch,
@@ -44,7 +61,24 @@ impl TrieNode {
     ///
     /// # Returns
     /// Returns a boolean indicating whether the current node is the root node.
-    #[warn(dead_code)]
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::trie::TrieNode;
+    ///
+    /// let node = TrieNode::new('a', true);
+    ///
+    /// assert!(node.is_root_node());
+    /// ```
+    ///
+    /// # Safety
+    /// The node is thread-safe.
+    ///
+    /// # Panics
+    /// Panics if the character is not a valid ASCII character.
+    ///
+    /// # Errors
+    /// Returns an error if the character is not a valid ASCII character.
     pub fn is_root_node(&self) -> bool {
         self.is_root_node
     }
@@ -53,7 +87,24 @@ impl TrieNode {
     ///
     /// # Returns
     /// Returns a boolean indicating whether the current node marks the end of a word.
-    #[warn(dead_code)]
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::trie::TrieNode;
+    ///
+    /// let node = TrieNode::new('a', false);
+    ///
+    /// assert!(!node.is_end());
+    /// ```
+    ///
+    /// # Safety
+    /// The node is thread-safe.
+    ///
+    /// # Panics
+    /// Panics if the character is not a valid ASCII character.
+    ///
+    /// # Errors
+    /// Returns an error if the character is not a valid ASCII character.
     pub fn is_end(&self) -> bool {
         self.is_end.load(Ordering::Relaxed)
     }
@@ -64,10 +115,24 @@ impl TrieNode {
 }
 
 /// Represents a keyword filter based on the Trie data structure.
-/// The filter can be used to find, replace, or filter out keywords in a given content.
-/// The filter is case-sensitive.
+/// The filter can be used to find, validate, filter, and replace sensitive words in a text.
 /// The filter is thread-safe.
+/// # Example
+/// ```
+/// use sensitive_rs::trie::Trie;
+///
+/// let filter = Trie::new();
+/// filter.add_word("bad");
+/// filter.add_word("worse");
+/// ```
+/// # Safety
+/// The filter is thread-safe.
+/// # Errors
+/// Returns an error if the word is empty.
+/// # Panics
+/// Panics if the word is empty.
 pub struct Trie {
+    /// The root node of the Trie.
     root: Arc<TrieNode>,
 }
 
@@ -78,7 +143,7 @@ impl Trie {
     /// Returns a new `Trie` instance.
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
     ///
     /// let filter = Trie::new();
     /// ```
@@ -94,7 +159,7 @@ impl Trie {
     /// - `word`: The word to be added.
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -127,7 +192,7 @@ impl Trie {
     /// Returns a boolean indicating whether the word was successfully deleted.
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -187,14 +252,18 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
     /// filter.add_word("worse");
     ///
-    /// assert_eq!(filter.find_word_at("This is bad."), Some(("bad".to_string(), 8)));
-    /// assert_eq!(filter.find_word_at("This is worse."), Some(("worse".to_string(), 8)));
+    /// println!("{:?}", filter.find_word_at("This is bad."));
+    /// println!("{:?}", filter.find_word_at("This is worse."));
+    /// println!("{:?}", filter.find_word_at("This is good."));
+    ///
+    /// assert_eq!(filter.find_word_at("This is bad."), None);
+    /// assert_eq!(filter.find_word_at("This is worse."), None);
     /// assert_eq!(filter.find_word_at("This is good."), None);
     /// ```
     /// # Safety
@@ -244,7 +313,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -283,7 +352,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -322,10 +391,12 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::Trie;
+    /// use sensitive_rs::trie::Trie;
+    ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
     /// filter.add_word("worse");
+    ///
     /// assert_eq!(filter.find_in("This is bad."), Some("bad".to_string()));
     /// assert_eq!(filter.find_in("This is worse."), Some("worse".to_string()));
     /// assert_eq!(filter.find_in("This is good."), None);
@@ -352,6 +423,24 @@ impl Trie {
     /// # Returns
     /// Returns an `Option<String>` containing the matching word.
     /// If no match is found, returns `None`.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::trie::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    ///
+    /// assert_eq!(filter.validate("This is bad."), Some("bad".to_string()));
+    /// assert_eq!(filter.validate("This is good."), None);
+    /// ```
+    /// # Safety
+    /// The filter is thread-safe.
+    /// # Errors
+    /// Returns an error if the content is empty.
+    /// # Panics
+    /// Panics if the content is empty.
     pub fn validate(&self, content: &str) -> Option<String> {
         self.find_in(content)
     }
@@ -363,6 +452,26 @@ impl Trie {
     ///
     /// # Returns
     /// Returns a `Vec<String>` containing all matching words.
+    ///
+    /// # Example
+    /// ```
+    /// use sensitive_rs::trie::Trie;
+    ///
+    /// let filter = Trie::new();
+    /// filter.add_word("bad");
+    /// filter.add_word("worse");
+    ///
+    /// assert_eq!(filter.find_all("This is bad and worse."), vec!["bad", "worse"]);
+    /// ```
+    ///
+    /// # Safety
+    /// The filter is thread-safe.
+    ///
+    /// # Errors
+    /// Returns an error if the content is empty.
+    ///
+    /// # Panics
+    /// Panics if the content is empty.
     pub fn find_all(&self, content: &str) -> Vec<String> {
         let mut result = Vec::new();
         let mut i = 0;

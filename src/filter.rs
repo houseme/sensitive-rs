@@ -7,26 +7,12 @@ use std::io::{self, BufRead, BufReader};
 #[cfg(feature = "net")]
 use std::time::Duration;
 
-/// A filter that can be used to filter out sensitive words from text.
+/// A filter that can be used to filter out sensitive words from the text.
 /// The filter is case-insensitive.
 /// The filter is fast and efficient.
 /// # Example
 /// ```
-/// use crate::Filter;
-///
-/// let mut filter = Filter::new();
-/// filter.add_word("bad");
-/// filter.add_word("worse");
-///
-/// assert_eq!(filter.find_in("This is bad."), (true, "bad".to_string()));
-/// assert_eq!(filter.find_in("This is worse."), (true, "worse".to_string()));
-/// assert_eq!(filter.find_in("This is good."), (false, "".to_string()));
-/// ```
-/// # Safety
-/// The filter is not thread-safe.
-/// # Examples
-/// ```
-/// use sensitive_rs::Filter;
+/// use sensitive_rs::filter::Filter;
 ///
 /// let mut filter = Filter::new();
 /// filter.add_word("bad");
@@ -44,7 +30,7 @@ use std::time::Duration;
 /// The noise pattern must be a valid regular expression.
 /// # Examples
 /// ```
-/// use sensitive_rs::Filter;
+/// use sensitive_rs::filter::Filter;
 ///
 /// let mut filter = Filter::new();
 /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
@@ -68,16 +54,13 @@ impl Filter {
     /// Create a new filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     /// let mut filter = Filter::new();
     /// ```
     /// # Safety
     /// The filter is not thread-safe.
-    /// # Examples
-    /// ```
-    /// use sensitive_rs::Filter;
-    /// let mut filter = Filter::new();
-    /// ```
+    /// # Returns
+    /// Returns a new filter object.
     pub fn new() -> Self {
         Filter { trie: Trie::new(), noise: Regex::new(r"[\|\s&%$@*]+").unwrap() }
     }
@@ -85,7 +68,7 @@ impl Filter {
     /// Create a new filter and load the default dictionary.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let filter = Filter::with_default_dict().unwrap();
     /// ```
@@ -105,7 +88,7 @@ impl Filter {
     /// The default pattern is r"[\|\s&%$@*]+".
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     /// let mut filter = Filter::new();
     /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
     /// ```
@@ -121,7 +104,8 @@ impl Filter {
     /// The pattern must be a valid regular expression.
     /// # Examples
     /// ```
-    /// use keyword_filter::Filter;
+    /// use sensitive_rs::filter::Filter;
+    ///
     /// let mut filter = Filter::new();
     /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
     /// ```
@@ -132,10 +116,10 @@ impl Filter {
     /// Load a word dictionary from a file.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let mut filter = Filter::new();
-    /// filter.load_word_dict("dict.txt").unwrap();
+    /// filter.load_word_dict("dict/dict.txt").unwrap();
     /// ```
     /// # Arguments
     /// * `path` - The path to the word dictionary file.
@@ -151,10 +135,10 @@ impl Filter {
     /// Load a word dictionary from a URL.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let mut filter = Filter::new();
-    /// filter.load_net_word_dict("https://example.com/dict.txt").unwrap();
+    /// filter.load_net_word_dict("https://raw.githubusercontent.com/houseme/sensitive-rs/main/dict/dict.txt").unwrap();
     /// ```
     /// # Arguments
     /// * `url` - The URL to the word dictionary file.
@@ -174,11 +158,11 @@ impl Filter {
     /// Load a word dictionary from a reader.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     /// use std::fs::File;
     ///
     /// let mut filter = Filter::new();
-    /// filter.load(File::open("dict.txt").unwrap()).unwrap();
+    /// filter.load(File::open("dict/dict.txt").unwrap()).unwrap();
     /// ```
     /// # Arguments
     /// * `reader` - A reader that implements the Read trait.
@@ -201,7 +185,7 @@ impl Filter {
     /// Add a word to the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_word("apple");
@@ -219,7 +203,7 @@ impl Filter {
     /// Add words to the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -240,7 +224,7 @@ impl Filter {
     /// Delete a word from the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_word("apple");
@@ -261,7 +245,7 @@ impl Filter {
     /// Delete words from the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -284,12 +268,12 @@ impl Filter {
     /// Filter words from a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
-    /// let filter = Filter::new();
+    /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
     ///
-    /// assert_eq!(filter.filter("I have an apple and a banana"), "I have an and a");
+    /// assert_eq!(filter.filter("I have an apple and a banana"), "I have an  and a ");
     /// ```
     /// # Arguments
     /// * `text` - The text to filter words from.
@@ -304,9 +288,9 @@ impl Filter {
     /// Replace words in a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
-    /// let filter = Filter::new();
+    /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
     ///
     /// assert_eq!(filter.replace("I have an apple and a banana", '*'), "I have an ***** and a ******");
@@ -326,9 +310,9 @@ impl Filter {
     /// Find a word in a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
-    /// let filter = Filter::new();
+    /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
     ///
     /// assert_eq!(filter.find_in("I have an apple and a banana"), (true, "apple".to_string()));
@@ -357,9 +341,9 @@ impl Filter {
     /// Find all words in a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
-    /// let filter = Filter::new();
+    /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
     ///
     /// assert_eq!(filter.find_all("I have an apple and a banana"), vec!["apple", "banana"]);
@@ -381,12 +365,12 @@ impl Filter {
     /// Validate a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
-    /// let filter = Filter::new();
+    /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
     ///
-    /// assert_eq!(filter.validate("I have an apple and a banana"), (false, "apple".to_string()));
+    /// assert_eq!(filter.validate("I have an apple and a banana"), (true, "apple".to_string()));
     /// ```
     /// # Arguments
     /// * `text` - The text to validate.
@@ -411,9 +395,9 @@ impl Filter {
     /// Remove unwanted characters from the text.
     /// # Example
     /// ```
-    /// use sensitive_rs::Filter;
+    /// use sensitive_rs::filter::Filter;
     ///
-    /// let filter = Filter::new();
+    /// let mut filter = Filter::new();
     /// filter.update_noise_pattern(r"[^\w]");
     ///
     /// assert_eq!(filter.remove_noise("I |have& %an$ @apple*"), "Ihaveanapple");
