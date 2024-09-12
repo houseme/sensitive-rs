@@ -54,8 +54,8 @@
 //!
 //! Licensed under either of
 //!
-//! * Apache License, Version 2.0, [LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0
-//! * MIT license [LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT
+//! * Apache License, Version 2.0, [LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>
+//! * MIT license [LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>
 mod filter;
 mod trie;
 
@@ -112,12 +112,11 @@ mod trie;
 ///
 /// # License
 /// Licensed under either of
-/// * Apache License, Version 2.0, [LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0
-/// * MIT license [LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT
+/// * Apache License, Version 2.0, [LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>
+/// * MIT license [LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>
 ///
 /// # Authors
 /// - [houseme](https://github.com/houseme)
-/// - [Contributors]
 ///
 /// # Acknowledgments
 /// - [Aho-Corasick](https://en.wikipedia.org/wiki/Aho%E2%80%93Corasick_algorithm)
@@ -159,9 +158,8 @@ mod trie;
 /// - Trie
 ///
 /// # Dependencies
-/// - [aho-corasick](https://crates.io/crates/aho-corasick)
+/// - [reqwest](https://crates.io/crates/reqwest)
 /// - [regex](https://crates.io/crates/regex)
-/// - [trie](https://crates.io/crates/trie)
 ///
 /// # Examples
 /// - [sensitive-rs](https://github.com/houseme/sensitive-rs)
