@@ -32,7 +32,7 @@ sensitive-rs = "0.1"
 ## 快速开始
 
 ```rust
-use sensitive_rs::trie::Trie;
+use sensitive_rs::Trie;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -94,7 +94,7 @@ fn main() {
 以下是一些使用 Sensitive-rs Filter 的示例代码
 
 ```rust
-use sensitive_rs::filter::Filter;
+use sensitive_rs::Filter;
 
 fn main() {
     // 创建一个新的 Filter 过滤器

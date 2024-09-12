@@ -34,7 +34,7 @@ Here are some examples of how to use Sensitive-rs:
 Here is an example of how to use the Filter struct
 
 ```rust
-use sensitive_rs::filter::Filter;
+use sensitive_rs::Filter;
 
 fn main() {
     // Create a new Filter
@@ -63,7 +63,7 @@ fn main() {
 Here is an example of how to use the Trie struct
 
 ```rust
-use sensitive_rs::trie::Trie;
+use sensitive_rs::Trie;
 
 fn main() {
     // Create a new Trie filter
