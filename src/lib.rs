@@ -205,4 +205,3 @@ pub use trie::Trie;
 /// let mut node = TrieNode::new('a', false);
 /// ```
 pub use trie::TrieNode;
-
