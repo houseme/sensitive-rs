@@ -201,5 +201,8 @@ pub use trie::Trie;
 /// use sensitive_rs::TrieNode;
 ///
 /// let mut node = TrieNode::new('a', false);
+///
+/// assert!(!node.is_root_node());
+/// assert!(!node.is_end())
 /// ```
 pub use trie::TrieNode;
