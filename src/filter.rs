@@ -12,7 +12,7 @@ use std::time::Duration;
 /// The filter is fast and efficient.
 /// # Example
 /// ```
-/// use sensitive_rs::filter::Filter;
+/// use sensitive_rs::Filter;
 ///
 /// let mut filter = Filter::new();
 /// filter.add_word("bad");
@@ -32,7 +32,7 @@ use std::time::Duration;
 ///
 /// # Examples
 /// ```
-/// use sensitive_rs::filter::Filter;
+/// use sensitive_rs::Filter;
 ///
 /// let mut filter = Filter::new();
 /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
@@ -58,7 +58,7 @@ impl Filter {
     /// Create a new filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// ```
@@ -71,7 +71,7 @@ impl Filter {
     /// Create a new filter and load the default dictionary.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let filter = Filter::with_default_dict().unwrap();
     /// ```
@@ -91,7 +91,7 @@ impl Filter {
     /// The default pattern is r"[\|\s&%$@*]+".
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.update_noise_pattern(r"[\|\s&%$@*]+");
@@ -113,7 +113,7 @@ impl Filter {
     /// Load a word dictionary from a file.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.load_word_dict("dict/dict.txt").unwrap();
@@ -132,7 +132,7 @@ impl Filter {
     /// Load a word dictionary from a URL.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.load_net_word_dict("https://raw.githubusercontent.com/houseme/sensitive-rs/main/dict/dict.txt").unwrap();
@@ -155,7 +155,7 @@ impl Filter {
     /// Load a word dictionary from a reader.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     /// use std::fs::File;
     ///
     /// let mut filter = Filter::new();
@@ -178,7 +178,7 @@ impl Filter {
     /// Add a word to the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_word("apple");
@@ -194,7 +194,7 @@ impl Filter {
     /// Add words to the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -213,7 +213,7 @@ impl Filter {
     /// Delete a word from the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_word("apple");
@@ -232,7 +232,7 @@ impl Filter {
     /// Delete words from the filter.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -253,7 +253,7 @@ impl Filter {
     /// Filter words from a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -271,7 +271,7 @@ impl Filter {
     /// Replace words in a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -290,7 +290,7 @@ impl Filter {
     /// Find a word in a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -319,7 +319,7 @@ impl Filter {
     /// Find all words in a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -341,7 +341,7 @@ impl Filter {
     /// Validate a string.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.add_words(&["apple", "app", "banana"]);
@@ -369,7 +369,7 @@ impl Filter {
     /// Remove unwanted characters from the text.
     /// # Example
     /// ```
-    /// use sensitive_rs::filter::Filter;
+    /// use sensitive_rs::Filter;
     ///
     /// let mut filter = Filter::new();
     /// filter.update_noise_pattern(r"[^\w]");

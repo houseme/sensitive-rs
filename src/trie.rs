@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 /// The node is thread-safe.
 /// # Example
 /// ```
-/// use sensitive_rs::trie::TrieNode;
+/// use sensitive_rs::TrieNode;
 ///
 /// let node = TrieNode::new('a', false);
 /// ```
@@ -37,7 +37,7 @@ impl TrieNode {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::TrieNode;
+    /// use sensitive_rs::TrieNode;
     ///
     /// let node = TrieNode::new('a', false);
     /// ```
@@ -60,7 +60,7 @@ impl TrieNode {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::TrieNode;
+    /// use sensitive_rs::TrieNode;
     ///
     /// let node = TrieNode::new('a', true);
     ///
@@ -83,7 +83,7 @@ impl TrieNode {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::TrieNode;
+    /// use sensitive_rs::TrieNode;
     ///
     /// let node = TrieNode::new('a', false);
     ///
@@ -109,7 +109,7 @@ impl TrieNode {
 /// The filter is thread-safe.
 /// # Example
 /// ```
-/// use sensitive_rs::trie::Trie;
+/// use sensitive_rs::Trie;
 ///
 /// let filter = Trie::new();
 /// filter.add_word("bad");
@@ -133,7 +133,7 @@ impl Trie {
     /// Returns a new `Trie` instance.
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// ```
@@ -151,7 +151,7 @@ impl Trie {
     /// - `word`: The word to be added.
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -182,7 +182,7 @@ impl Trie {
     /// Returns a boolean indicating whether the word was successfully deleted.
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -241,7 +241,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -296,7 +296,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -333,7 +333,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -370,7 +370,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -403,7 +403,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
@@ -430,7 +430,7 @@ impl Trie {
     ///
     /// # Example
     /// ```
-    /// use sensitive_rs::trie::Trie;
+    /// use sensitive_rs::Trie;
     ///
     /// let filter = Trie::new();
     /// filter.add_word("bad");
