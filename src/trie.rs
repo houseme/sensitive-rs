@@ -218,7 +218,7 @@ impl Trie {
 
             if child_deleted {
                 let mut children = node.children.write().unwrap();
-                if children.get(&ch).map_or(false, |child| child.can_be_deleted()) {
+                if children.get(&ch).is_some_and(|child| child.can_be_deleted()) {
                     children.remove(&ch);
                 }
             }

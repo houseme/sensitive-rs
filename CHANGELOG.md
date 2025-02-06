@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.3.0] - 2025-02-06
+
+### Changed
+
+- Replaced `native-tls` with `rustls-tls` in reqwest crate features.
+- Fixed Clippy warning by using `is_some_and` instead of `map_or`.
+
 ## [0.2.2] - 2024-11-28
 
 ### Changed
