@@ -24,7 +24,7 @@ codegen-units = 1  # Reduce code generation units to improve optimization
 
 [dependencies]
 regex = "1.11.1"
-reqwest = { version = "0.12.20", default-features = false, features = ["rustls-tls", "charset", "http2", "macos-system-configuration", "blocking"], optional = true }
+reqwest = { version = "0.12.21", default-features = false, features = ["rustls-tls", "charset", "http2", "macos-system-configuration", "blocking"], optional = true }
 
 [features]
 default = []
