@@ -531,7 +531,7 @@ mod tests {
             let filter_clone = filter.clone();
             handles.push(thread::spawn(move || {
                 assert_eq!(filter_clone.find_in("This is a concurrent test."), Some("concurrent".to_string()));
-                filter_clone.add_word(&format!("thread{}", i));
+                filter_clone.add_word(&format!("thread{i}"));
 
                 // Give some time for other threads to add their words
                 thread::sleep(Duration::from_millis(10));
@@ -554,11 +554,11 @@ mod tests {
         assert!(final_result.contains(&"test".to_string()));
         assert!(final_result.contains(&"concurrent".to_string()));
 
-        println!("{:?}", final_result);
+        println!("{final_result:?}");
 
         // Check if all "thread{i}" words were successfully added
         for i in 0..10 {
-            assert!(final_result.contains(&format!("thread{}", i)));
+            assert!(final_result.contains(&format!("thread{i}")));
         }
     }
 
@@ -614,7 +614,7 @@ mod tests {
                 filter_clone.del_word("test");
                 // }
                 assert!(!filter_clone.del_word("nonexistent"));
-                filter_clone.add_word(&format!("thread{}", i));
+                filter_clone.add_word(&format!("thread{i}"));
             }));
         }
 
@@ -628,7 +628,7 @@ mod tests {
 
         // Check if all "thread{i}" words were successfully added
         for i in 0..5 {
-            assert_eq!(filter.find_in(&format!("This is thread{} test.", i)), Some(format!("thread{}", i)));
+            assert_eq!(filter.find_in(&format!("This is thread{i} test.")), Some(format!("thread{i}")));
         }
     }
 }

@@ -148,7 +148,7 @@ impl Filter {
     #[cfg(feature = "net")]
     pub fn load_net_word_dict(&mut self, url: &str) -> Result<(), io::Error> {
         let client = Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
-        let response = client.get(url).send().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let response = client.get(url).send().map_err(std::io::Error::other)?;
         self.load(response)
     }
 
