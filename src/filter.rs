@@ -1,11 +1,7 @@
 use crate::trie::Trie;
 use regex::Regex;
-#[cfg(feature = "net")]
-use reqwest::blocking::Client;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-#[cfg(feature = "net")]
-use std::time::Duration;
 
 /// A filter that can be used to filter out sensitive words from the text.
 /// The filter is case-insensitive.
@@ -147,7 +143,7 @@ impl Filter {
     /// The URL must be valid.
     #[cfg(feature = "net")]
     pub fn load_net_word_dict(&mut self, url: &str) -> Result<(), io::Error> {
-        let client = Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+        let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
         let response = client.get(url).send().map_err(std::io::Error::other)?;
         self.load(response)
     }
