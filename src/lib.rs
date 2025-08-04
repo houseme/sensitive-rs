@@ -193,6 +193,7 @@ pub use filter::Filter;
 /// let result = trie.find_in("This is good and better.");
 /// assert_eq!(result, None);
 /// ```
+#[deprecated(since = "0.4.0", note = "Trie will be removed in v0.5.0, use MultiPatternEngine instead")]
 pub use trie::Trie;
 /// Trie node.
 /// It is a tree data structure used for efficient retrieval of a key in a large dataset.
@@ -205,4 +206,5 @@ pub use trie::Trie;
 /// assert!(!node.is_root_node());
 /// assert!(!node.is_end())
 /// ```
+#[deprecated(since = "0.4.0", note = "Trie will be removed in v0.5.0, use MultiPatternEngine instead")]
 pub use trie::TrieNode;
