@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.5.0] - 2025-08-06
+
+### Added
+
+- Upgrade Rust edition to 2024
+- Introduce parallel search with `rayon` (`find_all_parallel`)
+- Add LRU cache for hot query results
+- Support batch processing via `find_all_batch`
+- Add layered matching with `find_all_layered`
+- Support streaming processing with `find_all_streaming`
+
+### Changed
+
+- Bump crate version to 0.5.0 in `Cargo.toml`
+- Update README and examples to cover new APIs
+
+## [0.4.0] - 2025-08-05
+
+### Changed
+
+- Updated `reqwest` dependency to version `0.12.22`.
+- Tip will be removed soon `Trie` struct in the next major version.
+
 ## [0.3.0] - 2025-02-06
 
 ### Changed

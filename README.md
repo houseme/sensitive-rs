@@ -1,92 +1,80 @@
 # Sensitive-rs
 
-English [中文](README_CN.md)
+English | [简体中文](README_CN.md)
 
 [![Build](https://github.com/houseme/sensitive-rs/workflows/Build/badge.svg)](https://github.com/houseme/sensitive-rs/actions?query=workflow%3ABuild)
 [![crates.io](https://img.shields.io/crates/v/sensitive-rs.svg)](https://crates.io/crates/sensitive-rs)
 [![docs.rs](https://docs.rs/sensitive-rs/badge.svg)](https://docs.rs/sensitive-rs/)
 [![License](https://img.shields.io/crates/l/sensitive-rs)](./LICENSE-APACHE)
-[![Crates.io](https://img.shields.io/crates/d/sensitive-rs)](https://crates.io/crates/sensitive-rs)
+[![Downloads](https://img.shields.io/crates/d/sensitive-rs)](https://crates.io/crates/sensitive-rs)
 
-Sensitive-rs is a Rust library for finding, validating, filtering, and replacing sensitive words. It provides efficient
-algorithms to handle sensitive words, suitable for various application scenarios.
+A high-performance Rust crate for multi-pattern string matching, validation, filtering, and replacement.
 
 ## Features
 
-- **Find**: Locate all sensitive words in a text.
-- **Validate**: Check if a text contains any sensitive words.
-- **Filter**: Remove sensitive words from a text.
-- **Replace**: Replace sensitive words in a text with specified characters.
+- Find all sensitive words: `find_all`
+- Validate text contains sensitive words: `validate`
+- Remove sensitive words: `filter`
+- Replace sensitive words with a character: `replace`
+- Multi-algorithm engine: Aho-Corasick, Wu-Manber, Regex
+- Noise removal via configurable regex
+- Variant detection (拼音、形似字)
+- Parallel search with `rayon`
+- LRU cache for hot queries
+- Batch processing: `find_all_batch`
+- Layered matching: `find_all_layered`
+- Streaming processing: `find_all_streaming`
 
 ## Installation
 
-Add the following dependency to your `Cargo.toml`:
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "0.1"
+sensitive-rs = "0.5.0"
 ```
 
-## Usage Examples
-
-Here are some examples of how to use Sensitive-rs:
-
-Here is an example of how to use the Filter struct
+## Quick Start
 
 ```rust
 use sensitive_rs::Filter;
 
 fn main() {
-    // Create a new Filter
     let mut filter = Filter::new();
-    filter.add_word("bad");
-    filter.add_word("worse");
+    filter.add_words(&["rust", "filter", "敏感词"]);
 
-    // Find sensitive words
-    let result = filter.find_in("This is bad.");
-    assert_eq!(result, (true, "bad".to_string()));
+    let text = "hello rust, this is a filter demo 包含敏感词";
+    let found = filter.find_all(text);
+    println!("Found: {:?}", found);
 
-    // Validate text
-    let result = filter.validate("This is worse.");
-    assert_eq!(result, (true, "worse".to_string()));
-
-    // Filter sensitive words
-    let filtered_text = filter.filter("This is bad and worse.");
-    assert_eq!(filtered_text, "This is  and .");
-
-    // Replace sensitive words
-    let replaced_text = filter.replace("This is bad and worse.", '*');
-    assert_eq!(replaced_text, "This is *** and *****.");
+    let cleaned = filter.replace(text, '*');
+    println!("Cleaned: {}", cleaned);
 }
 ```
 
-Here is an example of how to use the Trie struct
+## Advanced Usage
+
+Batch processing:
 
 ```rust
-use sensitive_rs::Trie;
+let texts = vec!["text1", "text2"];
+let results = filter.find_all_batch( & texts);
+```
 
-fn main() {
-    // Create a new Trie filter
-    let filter = Trie::new();
-    filter.add_word("bad");
-    filter.add_word("worse");
+Layered matching:
 
-    // Find sensitive words
-    let result = filter.find_in("This is bad.");
-    assert_eq!(result, Some("bad".to_string()));
+```rust
+let layered = filter.find_all_layered("some long text");
+```
 
-    // Validate text
-    let result = filter.validate("This is worse.");
-    assert_eq!(result, Some("worse".to_string()));
+Streaming large files:
 
-    // Filter sensitive words
-    let filtered_text = filter.filter("This is bad and worse.");
-    assert_eq!(filtered_text, "This is  and .");
+```rust
+use std::fs::File;
+use std::io::BufReader;
 
-    // Replace sensitive words
-    let replaced_text = filter.replace("This is bad and worse.", '*');
-    assert_eq!(replaced_text, "This is *** and *****.");
-}
+let reader = BufReader::new(File::open("large.txt") ? );
+let stream_results = filter.find_all_streaming(reader) ?;
 ```
 
 ## Documentation

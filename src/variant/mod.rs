@@ -1,11 +1,11 @@
 use pinyin::ToPinyin;
 use std::collections::HashMap;
 
-/// 变体检测器
+/// Variation detector
 pub struct VariantDetector {
-    pinyin_map: HashMap<String, Vec<String>>, // 拼音到原词的映射
-    shape_map: HashMap<char, Vec<char>>,      // 形近字映射
-    char_to_pinyin: HashMap<char, String>,    // 字符到拼音的映射
+    pinyin_map: HashMap<String, Vec<String>>, // The mapping of pinyin to original word
+    shape_map: HashMap<char, Vec<char>>,      // SHAPED CLOSE CHARACTER MAPPING
+    char_to_pinyin: HashMap<char, String>,    // Character to pinyin mapping
 }
 
 impl Default for VariantDetector {
@@ -15,7 +15,7 @@ impl Default for VariantDetector {
 }
 
 impl VariantDetector {
-    /// 创建新检测器
+    /// Create a new detector
     pub fn new() -> Self {
         VariantDetector {
             pinyin_map: HashMap::new(),
@@ -24,19 +24,18 @@ impl VariantDetector {
         }
     }
 
-    /// 添加敏感词时构建拼音索引
+    /// Construct pinyin index when adding sensitive words
     pub fn add_word(&mut self, word: &str) {
-        // 修复 clippy 警告并安全处理拼音转换
         let pinyins: Vec<String> = word
             .chars()
             .filter_map(|c| {
                 if let Some(py) = c.to_pinyin() {
                     let pinyin = py.plain().to_string();
-                    // 建立字符到拼音的映射
+                    // Create a character to pinyin mapping
                     self.char_to_pinyin.insert(c, pinyin.clone());
                     Some(pinyin)
                 } else {
-                    // 对于无法转换的字符，返回 None
+                    // For characters that cannot be converted, return None
                     None
                 }
             })
@@ -48,14 +47,14 @@ impl VariantDetector {
         }
     }
 
-    /// 检测文本中的变体
+    /// Detect variants in text
     pub fn detect<'a>(&'a self, text: &str, original_words: &[&'a str]) -> Vec<&'a str> {
         let mut variants = Vec::new();
 
-        // 1. 检测拼音变体
+        // 1. Detect pinyin variants
         variants.extend(self.detect_pinyin_variants(text, original_words));
 
-        // 2. 检测形近字变体
+        // 2. Detect shape-near-word variant
         variants.extend(self.detect_shape_variants(text, original_words));
 
         variants.sort_unstable();
@@ -63,19 +62,19 @@ impl VariantDetector {
         variants
     }
 
-    /// 检测拼音变体
+    /// Detect pinyin variants
     fn detect_pinyin_variants<'a>(&'a self, text: &str, original_words: &[&'a str]) -> Vec<&'a str> {
         let text_pinyin = self.text_to_pinyin(text);
 
         original_words
             .iter()
             .filter(|&&word| {
-                // 构建词的拼音
+                // Construct the pinyin of the word
                 let word_pinyin: String = word
                     .chars()
                     .map(|c| {
                         self.char_to_pinyin.get(&c).cloned().unwrap_or_else(|| c.to_string())
-                        // 安全处理：返回原字符
+                        // Safe processing: Return original characters
                     })
                     .collect();
 
@@ -85,28 +84,28 @@ impl VariantDetector {
             .collect()
     }
 
-    /// 将文本转换为拼音
+    /// Convert text to pinyin
     fn text_to_pinyin(&self, text: &str) -> String {
         text.chars()
             .map(|c| {
                 self.char_to_pinyin.get(&c).cloned().unwrap_or_else(|| {
-                    // 实时转换未缓存的字符
+                    // Convert uncached characters in real time
                     if let Some(py) = c.to_pinyin() {
                         py.plain().to_string()
                     } else {
-                        c.to_string() // 保持原字符
+                        c.to_string() // Keep original characters
                     }
                 })
             })
             .collect()
     }
 
-    /// 检测形近字变体
+    /// Detect shape-near-word variant
     fn detect_shape_variants<'a>(&'a self, text: &str, original_words: &[&'a str]) -> Vec<&'a str> {
         original_words.iter().filter(|&&word| self.is_shape_variant(text, word)).copied().collect()
     }
 
-    /// 判断是否为形近字变体
+    /// Determine whether it is a variant of the shape and character
     fn is_shape_variant(&self, text: &str, word: &str) -> bool {
         let text_chars: Vec<char> = text.chars().collect();
         let word_chars: Vec<char> = word.chars().collect();
@@ -121,10 +120,10 @@ impl VariantDetector {
             .all(|(&tc, &wc)| tc == wc || self.shape_map.get(&wc).is_some_and(|variants| variants.contains(&tc)))
     }
 
-    /// 构建形近字映射表
+    /// Constructing a shape-size-word mapping table
     fn build_shape_map() -> HashMap<char, Vec<char>> {
         let mut map = HashMap::new();
-        // 示例：添加一些常见形近字
+        // Example: Add some common characters
         map.insert('赌', vec!['渧', '睹', '堵']);
         map.insert('博', vec!['搏', '傅', '膊']);
         map.insert('有', vec!['友', '右']);

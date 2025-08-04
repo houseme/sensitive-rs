@@ -4,18 +4,18 @@ use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
 use std::collections::{HashMap, HashSet};
 
-/// Wu-Manber 多模式匹配算法
+/// Wu-Manber multi-pattern matching algorithm
 pub struct WuManber {
-    patterns: Vec<String>,                // 模式字符串列表
-    min_len: usize,                       // 最短模式长度
-    block_size: usize,                    // 块大小（B 参数）
-    shift_table: HashMap<u64, usize>,     // Shift 表：使用 hash 作为 key
-    hash_table: HashMap<u64, Vec<usize>>, // Hash 表：hash 到模式索引的映射
-    pattern_set: HashSet<String>,         // 用于快速查找的模式集合
+    patterns: Vec<String>,                // Schema string list
+    min_len: usize,                       // Shortest mode length
+    block_size: usize,                    // Block size (B parameter)
+    shift_table: HashMap<u64, usize>,     // Shift table: Use hash as key
+    hash_table: HashMap<u64, Vec<usize>>, // Hash table: hash to schema index map
+    pattern_set: HashSet<String>,         // A collection of patterns for quick searches
 }
 
 impl WuManber {
-    /// 为中文优化的构造函数
+    /// Constructors optimized for Chinese
     pub fn new_chinese(patterns: Vec<String>) -> Self {
         if patterns.is_empty() {
             return Self {
@@ -34,7 +34,7 @@ impl WuManber {
         Self::new(patterns, block_size)
     }
 
-    /// 创建新的 Wu-Manber 实例
+    /// Create a new Wu-Manber instance
     pub fn new(patterns: Vec<String>, block_size: usize) -> Self {
         if patterns.is_empty() {
             return Self {
@@ -63,7 +63,7 @@ impl WuManber {
         wm
     }
 
-    /// 构建 shift 和 hash 表
+    /// Build shift and hash tables
     fn build_tables(&mut self) {
         if self.patterns.is_empty() {
             return;
@@ -72,7 +72,7 @@ impl WuManber {
         self.shift_table.clear();
         self.hash_table.clear();
 
-        // 构建 shift 表
+        // Building a shift table
         for pattern in &self.patterns {
             let chars: Vec<char> = pattern.chars().collect();
             if chars.len() >= self.block_size {
@@ -86,7 +86,7 @@ impl WuManber {
             }
         }
 
-        // 构建 hash 表
+        // Build a hash table
         for (pattern_idx, pattern) in self.patterns.iter().enumerate() {
             let chars: Vec<char> = pattern.chars().collect();
             if chars.len() >= self.block_size {
@@ -99,7 +99,7 @@ impl WuManber {
         }
     }
 
-    /// 计算字符串的哈希值
+    /// Calculate the hash value of a string
     fn calculate_hash(&self, s: &str) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -109,13 +109,13 @@ impl WuManber {
         hasher.finish()
     }
 
-    /// 搜索文本中的敏感词
+    /// Search for sensitive words in text
     pub fn search(&self, text: &str) -> Option<String> {
         if self.patterns.is_empty() || text.is_empty() {
             return None;
         }
 
-        // 转换为字符数组处理 Unicode
+        // Convert to character array processing Unicode
         let chars: Vec<char> = text.chars().collect();
         let text_len = chars.len();
 
@@ -155,7 +155,7 @@ impl WuManber {
                 }
             }
 
-            // 获取 shift 值
+            // Get shift value
             let shift = self.shift_table.get(&hash).copied().unwrap_or(self.min_len);
             i += shift.max(1);
         }
@@ -163,7 +163,7 @@ impl WuManber {
         None
     }
 
-    /// 查找所有匹配
+    /// Find all matches
     pub fn search_all(&self, text: &str) -> Vec<String> {
         let mut results = Vec::new();
         let mut remaining_text = text;
@@ -182,17 +182,17 @@ impl WuManber {
         results
     }
 
-    /// 替换所有匹配
+    /// Replace all matches
     pub fn replace_all(&self, text: &str, replacement: char) -> String {
         let mut result = text.to_string();
 
-        // 按模式长度降序排列，避免短模式影响长模式的匹配
+        // Arrange in descending order of pattern length to avoid short patterns affecting long patterns
         let mut sorted_patterns = self.patterns.clone();
         sorted_patterns.sort_by_key(|b| std::cmp::Reverse(b.chars().count()));
 
         for pattern in &sorted_patterns {
             if replacement == '\0' {
-                // 使用空字符表示删除
+                // Use empty characters to indicate deletion
                 result = result.replace(pattern, "");
             } else {
                 let repl_str = replacement.to_string().repeat(pattern.chars().count());
@@ -203,12 +203,12 @@ impl WuManber {
         result
     }
 
-    /// 完全移除匹配的内容
+    /// Completely remove matching content
     pub fn remove_all(&self, text: &str) -> String {
         self.replace_all(text, '\0')
     }
 
-    /// 并行构建 shift 和 hash 表
+    /// Construct shift and hash tables in parallel
     pub fn build_tables_parallel(&mut self) {
         if self.patterns.is_empty() {
             return;
@@ -217,7 +217,7 @@ impl WuManber {
         self.shift_table.clear();
         self.hash_table.clear();
 
-        // 并行计算 shift 表
+        // Parallel calculation shift table
         let shift_entries: Vec<(u64, usize)> = self
             .patterns
             .par_iter()
@@ -243,12 +243,12 @@ impl WuManber {
             })
             .collect();
 
-        // 合并 shift 表
+        // Merge shift tables
         for (hash, shift) in shift_entries {
             self.shift_table.entry(hash).and_modify(|v| *v = (*v).min(shift)).or_insert(shift);
         }
 
-        // 并行计算 hash 表
+        // Parallel computing hash table
         let hash_entries: Vec<(u64, usize)> = self
             .patterns
             .par_iter()
@@ -272,7 +272,7 @@ impl WuManber {
             })
             .collect();
 
-        // 合并 hash 表
+        // Merge hash tables
         for (hash, pattern_idx) in hash_entries {
             self.hash_table.entry(hash).or_default().push(pattern_idx);
         }
@@ -280,7 +280,7 @@ impl WuManber {
 }
 
 impl WuManber {
-    /// 获取匹配位置 - 修复字符边界问题
+    /// Get matching positions - Fix character boundary issues
     pub fn find_matches(&self, text: &str) -> Vec<Match> {
         let mut matches = Vec::new();
         let chars: Vec<char> = text.chars().collect();
@@ -314,7 +314,7 @@ impl WuManber {
                         if match_end <= text_len {
                             let candidate: String = chars[match_start..match_end].iter().collect();
                             if candidate == *pattern {
-                                // 计算字节位置用于返回
+                                // Calculate byte position for return
                                 let byte_start = chars[..match_start].iter().map(|c| c.len_utf8()).sum();
                                 let byte_end = chars[..match_end].iter().map(|c| c.len_utf8()).sum();
 
@@ -334,7 +334,7 @@ impl WuManber {
         matches
     }
 
-    /// 带并行构建的构造函数
+    /// Constructor with parallel construction
     pub fn new_parallel(patterns: Vec<String>, block_size: usize) -> Self {
         if patterns.is_empty() {
             return Self {
@@ -361,12 +361,12 @@ impl WuManber {
         wm
     }
 
-    /// 中文优化的哈希函数
+    /// Chinese-optimized hash function
     #[allow(dead_code)]
     fn chinese_hash(&self, block: &str) -> u64 {
-        // 使用字符编码直接计算，避免 UTF-8 解码开销
+        // Use character encoding for direct computation, avoiding UTF-8 decoding overhead
         if block.len() == 2 {
-            // 对于 2 字节中文常见情况
+            // For 2 bytes Chinese common case
             let bytes = block.as_bytes();
             (bytes[0] as u64) << 8 | (bytes[1] as u64)
         } else {
@@ -374,14 +374,14 @@ impl WuManber {
         }
     }
 
-    /// 计算字符串块的哈希值
-    /// 中文优化的哈希函数
+    /// Calculate the hash value of a string block
+    /// Chinese-optimized hash function
     fn hash(&self, block: &str) -> u64 {
         self.calculate_hash(block)
     }
 }
 
-/// 匹配结果结构体
+/// Match result struct
 #[derive(Debug, Clone, Copy)]
 pub struct Match {
     pub start: usize,

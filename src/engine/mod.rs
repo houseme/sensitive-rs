@@ -4,21 +4,21 @@ use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use regex::Regex;
 use std::sync::Arc;
 
-/// 支持的匹配算法类型
+/// Supported matching algorithm types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatchAlgorithm {
-    AhoCorasick, // 默认算法，适合中等规模词库
-    WuManber,    // 适合大规模词库
-    Regex,       // 适合复杂规则匹配
+    AhoCorasick, // Default algorithm, suitable for medium-sized vocabulary
+    WuManber,    // Suitable for large-scale thesaurus
+    Regex,       // Suitable for complex rule matching
 }
 
-/// 多模式匹配引擎
+/// Multi-pattern matching engine
 pub struct MultiPatternEngine {
-    algorithm: MatchAlgorithm,    // 当前使用的匹配算法
-    ac: Option<Arc<AhoCorasick>>, // Aho-Corasick 引擎
-    wm: Option<Arc<WuManber>>,    // Wu-Manber 引擎
-    regex_set: Option<Regex>,     // 正则表达式引擎
-    patterns: Vec<String>,        // 存储所有模式
+    algorithm: MatchAlgorithm,    // The matching algorithm currently used
+    ac: Option<Arc<AhoCorasick>>, // Aho-Corasick Engine
+    wm: Option<Arc<WuManber>>,    // Wu-Manber Engine
+    regex_set: Option<Regex>,     // Regular Expression Engine
+    patterns: Vec<String>,        // Store all modes
 }
 
 impl Default for MultiPatternEngine {
@@ -28,7 +28,7 @@ impl Default for MultiPatternEngine {
 }
 
 impl MultiPatternEngine {
-    /// 创建新引擎并根据词库大小自动选择算法
+    /// Create a new engine and automatically select the algorithm based on the lexicon size
     pub fn new(algorithm: Option<MatchAlgorithm>, patterns: &[String]) -> Self {
         let algorithm = algorithm.unwrap_or_else(|| Self::recommend_algorithm(patterns.len()));
         let mut engine = Self { algorithm, ..Default::default() };
@@ -37,11 +37,11 @@ impl MultiPatternEngine {
         engine
     }
 
-    /// 重新构建引擎（当模式更新时调用）
+    /// Rebuild the engine (called when the pattern is updated)
     pub fn rebuild(&mut self, patterns: &[String]) {
         self.patterns = patterns.to_vec();
 
-        // 根据新的词库大小重新评估算法选择
+        // Reevaluate algorithm selection based on new thesaurus size
         let recommended = Self::recommend_algorithm(patterns.len());
         if self.algorithm != recommended {
             self.algorithm = recommended;
@@ -50,30 +50,30 @@ impl MultiPatternEngine {
         self.build_engines();
     }
 
-    /// 根据词库大小推荐算法
+    /// Recommended algorithm based on the lexicon
     pub fn recommend_algorithm(word_count: usize) -> MatchAlgorithm {
         match word_count {
-            0..=100 => MatchAlgorithm::WuManber,         // 小词库用 Wu-Manber
-            101..=10_000 => MatchAlgorithm::AhoCorasick, // 中等词库用 Aho-Corasick
-            _ => MatchAlgorithm::Regex,                  // 超大词库用正则
+            0..=100 => MatchAlgorithm::WuManber,         // Small thesaurus for Wu-Manber
+            101..=10_000 => MatchAlgorithm::AhoCorasick, // Aho-Corasick for medium thesaurus
+            _ => MatchAlgorithm::Regex,                  // Use rules for super large thesaurus
         }
     }
 
-    /// 强制使用指定算法重建
+    /// Force rebuild using the specified algorithm
     pub fn rebuild_with_algorithm(&mut self, patterns: &[String], algorithm: MatchAlgorithm) {
         self.patterns = patterns.to_vec();
         self.algorithm = algorithm;
         self.build_engines();
     }
 
-    /// 根据当前算法构建相应的引擎
+    /// Build the corresponding engine according to the current algorithm
     fn build_engines(&mut self) {
-        // 清空所有引擎
+        // Clear all engines
         self.ac = None;
         self.wm = None;
         self.regex_set = None;
 
-        // 根据选择的算法构建对应引擎
+        // Build the corresponding engine according to the selected algorithm
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
                 if !self.patterns.is_empty() {
@@ -99,17 +99,17 @@ impl MultiPatternEngine {
         }
     }
 
-    /// 获取当前使用的算法
+    /// Get the currently used algorithm
     pub fn current_algorithm(&self) -> MatchAlgorithm {
         self.algorithm
     }
 
-    /// 获取所有模式
+    /// Get all modes
     pub fn get_patterns(&self) -> &[String] {
         &self.patterns
     }
 
-    /// 查找第一个匹配
+    /// Find the first match
     pub fn find_first(&self, text: &str) -> Option<String> {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
@@ -120,14 +120,13 @@ impl MultiPatternEngine {
         }
     }
 
-    /// 替换所有匹配
+    /// Replace all matches
     pub fn replace_all(&self, text: &str, replacement: &str) -> String {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => self.ac.as_ref().unwrap().replace_all(text, &[replacement]).to_string(),
             MatchAlgorithm::WuManber => {
-                // 修复：正确处理空字符串替换
                 if replacement.is_empty() {
-                    // 对于空字符串，直接移除匹配的内容
+                    // For empty strings, remove the matching content directly
                     let mut result = text.to_string();
                     for pattern in &self.patterns {
                         result = result.replace(pattern, "");
@@ -142,7 +141,7 @@ impl MultiPatternEngine {
         }
     }
 
-    /// 查找所有匹配
+    /// Find all matches
     pub fn find_all(&self, text: &str) -> Vec<String> {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {

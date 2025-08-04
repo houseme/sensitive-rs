@@ -1,6 +1,10 @@
 use crate::engine::MatchAlgorithm;
 use crate::{engine::MultiPatternEngine, variant::VariantDetector};
+use lru::LruCache;
+use rayon::prelude::*;
 use regex::Regex;
+use std::num::NonZero;
+use std::sync::{Arc, Mutex};
 use std::{
     fs::File,
     io::{self, BufRead, BufReader},
@@ -9,11 +13,12 @@ use std::{
 
 /// Advanced sensitive word filter with variant detection
 pub struct Filter {
-    engine: MultiPatternEngine,        // 多模式匹配引擎
-    variant_detector: VariantDetector, // 变体检测器
-    noise: Regex,                      // 噪音处理正则
+    engine: MultiPatternEngine,        // Multi-pattern matching engine
+    variant_detector: VariantDetector, // Variation detector
+    noise: Regex,                      // Noise processing rules
+    cache: Arc<Mutex<LruCache<String, Vec<String>>>>,
     #[cfg(feature = "net")]
-    http_client: reqwest::blocking::Client, // 网络请求客户端
+    http_client: reqwest::blocking::Client, // Network request client
 }
 
 impl Filter {
@@ -23,12 +28,26 @@ impl Filter {
             engine: MultiPatternEngine::new(None, &[]),
             variant_detector: VariantDetector::new(),
             noise: Regex::new(r"[^\w\s\u4e00-\u9fff]").unwrap(),
+            cache: Arc::new(Mutex::new(LruCache::new(NonZero::new(1000).unwrap()))), // Cache 1000 results
             #[cfg(feature = "net")]
             http_client: reqwest::blocking::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .unwrap(),
         }
+    }
+
+    fn check_cache(&self, text: &str) -> Option<Vec<String>> {
+        self.cache.lock().unwrap().get(text).cloned()
+    }
+
+    fn cache_result(&self, text: &str, results: &[String]) {
+        self.cache.lock().unwrap().put(text.to_string(), results.to_vec());
+    }
+
+    /// Clear the cache
+    pub fn clear_cache(&self) {
+        self.cache.lock().unwrap().clear();
     }
 
     /// Create with specific algorithm
@@ -70,7 +89,7 @@ impl Filter {
         }
     }
 
-    /// 获取当前使用的算法
+    /// Get the currently used algorithm
     pub fn current_algorithm(&self) -> MatchAlgorithm {
         self.engine.current_algorithm()
     }
@@ -136,36 +155,23 @@ impl Filter {
         (false, String::new())
     }
 
-    /// Find all sensitive words
-    pub fn find_all(&self, text: &str) -> Vec<String> {
-        let clean_text = self.remove_noise(text);
-        let mut results = self.engine.find_all(&clean_text);
-
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-
-        results.extend(self.variant_detector.detect(&clean_text, &patterns).into_iter().map(|s| s.to_string()));
-        results.sort_unstable();
-        results.dedup();
-        results
-    }
-
     /// Replace sensitive words with replacement character
     pub fn replace(&self, text: &str, replacement: char) -> String {
         let clean_text = self.remove_noise(text);
 
-        // 获取所有需要处理的敏感词（包括变体）
+        // Get all sensitive words (including variants) that need to be processed
         let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
         let variants = self.variant_detector.detect(&clean_text, &patterns);
 
         let mut result = clean_text;
 
-        // 替换引擎检测到的敏感词
+        // Replace sensitive words detected by the engine
         for pattern in self.engine.get_patterns() {
             let repl_str = replacement.to_string().repeat(pattern.chars().count());
             result = result.replace(pattern, &repl_str);
         }
 
-        // 替换变体检测到的敏感词
+        // Replace the sensitive words detected by the variant
         for variant in variants {
             let repl_str = replacement.to_string().repeat(variant.chars().count());
             result = result.replace(variant, &repl_str);
@@ -178,18 +184,18 @@ impl Filter {
     pub fn filter(&self, text: &str) -> String {
         let clean_text = self.remove_noise(text);
 
-        // 获取所有需要处理的敏感词（包括变体）
+        // Get all sensitive words (including variants) that need to be processed
         let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
         let variants = self.variant_detector.detect(&clean_text, &patterns);
 
         let mut result = clean_text;
 
-        // 移除引擎检测到的敏感词
+        // Remove sensitive words detected by the engine
         for pattern in self.engine.get_patterns() {
             result = result.replace(pattern, "");
         }
 
-        // 移除变体检测到的敏感词
+        // Remove sensitive words detected by variants
         for variant in variants {
             result = result.replace(variant, "");
         }
@@ -210,6 +216,125 @@ impl Filter {
     /// Get current noise pattern
     pub fn get_noise_pattern(&self) -> &Regex {
         &self.noise
+    }
+}
+
+impl Filter {
+    /// Optimized method of finding all sensitive words
+    pub fn find_all(&self, text: &str) -> Vec<String> {
+        let clean_text = self.remove_noise(text);
+
+        // 1. Caching mechanism - Check whether the results have been cached
+        if let Some(cached_result) = self.check_cache(&clean_text) {
+            return cached_result;
+        }
+
+        let results = if clean_text.len() > 1000 {
+            // Long text is processed in parallel
+            self.find_all_parallel(&clean_text)
+        } else {
+            // General processing of short text
+            self.find_all_sequential(&clean_text)
+        };
+
+        // 3. Cache results
+        self.cache_result(&clean_text, &results);
+
+        results
+    }
+
+    /// Parallel Processing Version - For Long Text
+    fn find_all_parallel(&self, text: &str) -> Vec<String> {
+        let chunk_size = std::cmp::max(text.len() / rayon::current_num_threads(), 100);
+        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+
+        // Parallel processing in segments
+        let engine_results: Vec<String> = text
+            .chars()
+            .collect::<Vec<_>>()
+            .par_chunks(chunk_size)
+            .flat_map(|chunk| {
+                let chunk_text: String = chunk.iter().collect();
+                self.engine.find_all(&chunk_text)
+            })
+            .collect();
+
+        // Parallel variant detection - Fixed parallel iterator problem
+        let variant_results: Vec<String> = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .par_iter()
+            .map(|segment| self.variant_detector.detect(segment, &patterns))
+            .flatten()
+            .map(|s| s.to_string())
+            .collect();
+
+        // Merge and remove repetition
+        let mut results = engine_results;
+        results.extend(variant_results);
+        self.deduplicate_and_sort(results)
+    }
+
+    /// Sequential processing version - suitable for short text
+    fn find_all_sequential(&self, text: &str) -> Vec<String> {
+        let mut results = self.engine.find_all(text);
+        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+
+        // Add variant detection results
+        results.extend(self.variant_detector.detect(text, &patterns).into_iter().map(|s| s.to_string()));
+
+        self.deduplicate_and_sort(results)
+    }
+
+    /// Deduplication and sort
+    fn deduplicate_and_sort(&self, mut results: Vec<String>) -> Vec<String> {
+        results.sort_unstable();
+        results.dedup();
+        results
+    }
+
+    /// Bulk search for optimized versions
+    pub fn find_all_batch(&self, texts: &[&str]) -> Vec<Vec<String>> {
+        texts.par_iter().map(|text| self.find_all(text)).collect()
+    }
+
+    /// Hierarchical Matching - Preferential Matching by Sensitive Word Length
+    pub fn find_all_layered(&self, text: &str) -> Vec<String> {
+        let clean_text = self.remove_noise(text);
+        let mut results = Vec::new();
+        let mut remaining_text = clean_text.clone();
+
+        // Arrange patterns in descending order of length, prioritize long words
+        let mut sorted_patterns = self.engine.get_patterns().to_vec();
+        sorted_patterns.sort_by_key(|b| std::cmp::Reverse(b.len()));
+
+        // Hierarchical matching
+        for pattern in &sorted_patterns {
+            if remaining_text.contains(pattern) {
+                results.push(pattern.clone());
+                // Remove matching parts to avoid duplicate matches
+                remaining_text = remaining_text.replace(pattern, " ");
+            }
+        }
+
+        // Variation detection (for remaining text)
+        let patterns: Vec<_> = sorted_patterns.iter().map(|s| s.as_str()).collect();
+        results.extend(self.variant_detector.detect(&remaining_text, &patterns).into_iter().map(|s| s.to_string()));
+
+        self.deduplicate_and_sort(results)
+    }
+
+    /// Streaming version - suitable for oversized text
+    pub fn find_all_streaming<R: BufRead>(&self, reader: R) -> io::Result<Vec<String>> {
+        let mut all_results = Vec::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            let results = self.find_all(&line);
+            all_results.extend(results);
+        }
+
+        Ok(self.deduplicate_and_sort(all_results))
     }
 }
 
@@ -260,10 +385,10 @@ mod tests {
 
         let text = "这里有赌博和色情内容";
 
-        // replace 应该用字符替换
+        // replace should be replaced with characters
         assert_eq!(filter.replace(text, '*'), "这里有**和**内容");
 
-        // filter 应该完全移除
+        // filter should be completely removed
         assert_eq!(filter.filter(text), "这里有和内容");
     }
 
@@ -277,12 +402,12 @@ mod tests {
 
     #[test]
     fn test_algorithm_switch_one() {
-        // 少量词使用 Wu-Manber
+        // Use Wu-Manber in small quantities
         let mut small = Filter::new();
         small.add_words(&["a", "b", "c"]);
         assert!(matches!(small.engine.current_algorithm(), MatchAlgorithm::WuManber));
 
-        // 中等数量用 Aho-Corasick
+        // Aho-Corasick for medium quantity
         let words: Vec<_> = (0..150).map(|i| format!("word{i}")).collect();
         let mut medium = Filter::new();
         medium.add_words(&words.iter().map(|s| s.as_str()).collect::<Vec<_>>());
@@ -309,13 +434,13 @@ mod tests {
 
     #[test]
     fn test_algorithm_switch() {
-        // 少量词使用 Wu-Manber
+        // Use Wu-Manber in small quantities
         let mut small = Filter::new();
         small.add_words(&["a", "b", "c"]);
         println!("Small (3 words): {:?}", small.current_algorithm());
         assert!(matches!(small.current_algorithm(), MatchAlgorithm::WuManber));
 
-        // 中等数量用 Aho-Corasick
+        // Aho-Corasick for medium quantity
         let words: Vec<_> = (0..150).map(|i| format!("word{i}")).collect();
         let word_refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
 
@@ -325,7 +450,7 @@ mod tests {
         println!("Medium (150 words): {:?}", medium.current_algorithm());
         println!("Pattern count: {}", medium.engine.get_patterns().len());
 
-        // 验证算法选择逻辑
+        // Verification algorithm selection logic
         let recommended = MultiPatternEngine::recommend_algorithm(150);
         println!("Recommended algorithm for 150 words: {recommended:?}");
 
