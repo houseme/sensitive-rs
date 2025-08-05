@@ -77,12 +77,17 @@ impl MultiPatternEngine {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
                 if !self.patterns.is_empty() {
-                    self.ac = Some(Arc::new(
-                        AhoCorasickBuilder::new()
-                            .match_kind(aho_corasick::MatchKind::LeftmostLongest)
-                            .build(&self.patterns)
-                            .unwrap(),
-                    ));
+                    match AhoCorasickBuilder::new()
+                        .match_kind(aho_corasick::MatchKind::LeftmostLongest)
+                        .build(&self.patterns)
+                    {
+                        Ok(ac) => self.ac = Some(Arc::new(ac)),
+                        Err(_) => {
+                            // Fallback to WuManber if AhoCorasick build fails
+                            self.algorithm = MatchAlgorithm::WuManber;
+                            self.wm = Some(Arc::new(WuManber::new_chinese(self.patterns.clone())));
+                        }
+                    }
                 }
             }
             MatchAlgorithm::WuManber => {
@@ -92,8 +97,17 @@ impl MultiPatternEngine {
             }
             MatchAlgorithm::Regex => {
                 if !self.patterns.is_empty() {
-                    let pattern = self.patterns.join("|");
-                    self.regex_set = Some(Regex::new(&pattern).unwrap());
+                    let escaped_patterns: Vec<String> = self.patterns.iter().map(|p| regex::escape(p)).collect();
+                    let pattern = escaped_patterns.join("|");
+
+                    match Regex::new(&pattern) {
+                        Ok(regex) => self.regex_set = Some(regex),
+                        Err(_) => {
+                            // Fallback to WuManber if Regex build fails
+                            self.algorithm = MatchAlgorithm::WuManber;
+                            self.wm = Some(Arc::new(WuManber::new_chinese(self.patterns.clone())));
+                        }
+                    }
                 }
             }
         }
@@ -113,31 +127,45 @@ impl MultiPatternEngine {
     pub fn find_first(&self, text: &str) -> Option<String> {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
-                self.ac.as_ref().unwrap().find(text).map(|mat| text[mat.start()..mat.end()].to_string())
+                self.ac.as_ref()?.find(text).map(|mat| text[mat.start()..mat.end()].to_string())
             }
-            MatchAlgorithm::WuManber => self.wm.as_ref().unwrap().search(text),
-            MatchAlgorithm::Regex => self.regex_set.as_ref().unwrap().find(text).map(|mat| mat.as_str().to_string()),
+            MatchAlgorithm::WuManber => {
+                // Use the search_string method to return directly to String
+                self.wm.as_ref()?.search_string(text)
+            }
+            MatchAlgorithm::Regex => self.regex_set.as_ref()?.find(text).map(|mat| mat.as_str().to_string()),
         }
     }
 
-    /// Replace all matches
+    /// Replace all matches with optimized performance
     pub fn replace_all(&self, text: &str, replacement: &str) -> String {
         match self.algorithm {
-            MatchAlgorithm::AhoCorasick => self.ac.as_ref().unwrap().replace_all(text, &[replacement]).to_string(),
-            MatchAlgorithm::WuManber => {
-                if replacement.is_empty() {
-                    // For empty strings, remove the matching content directly
-                    let mut result = text.to_string();
-                    for pattern in &self.patterns {
-                        result = result.replace(pattern, "");
-                    }
-                    result
+            MatchAlgorithm::AhoCorasick => {
+                if let Some(ac) = &self.ac {
+                    ac.replace_all(text, &[replacement]).to_string()
                 } else {
-                    let repl_char = replacement.chars().next().unwrap_or('*');
-                    self.wm.as_ref().unwrap().replace_all(text, repl_char)
+                    text.to_string()
                 }
             }
-            MatchAlgorithm::Regex => self.regex_set.as_ref().unwrap().replace_all(text, replacement).to_string(),
+            MatchAlgorithm::WuManber => {
+                if let Some(wm) = &self.wm {
+                    if replacement.is_empty() {
+                        wm.remove_all(text)
+                    } else {
+                        let repl_char = replacement.chars().next().unwrap_or('*');
+                        wm.replace_all(text, repl_char)
+                    }
+                } else {
+                    text.to_string()
+                }
+            }
+            MatchAlgorithm::Regex => {
+                if let Some(regex) = &self.regex_set {
+                    regex.replace_all(text, replacement).to_string()
+                } else {
+                    text.to_string()
+                }
+            }
         }
     }
 
@@ -145,12 +173,116 @@ impl MultiPatternEngine {
     pub fn find_all(&self, text: &str) -> Vec<String> {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
-                self.ac.as_ref().unwrap().find_iter(text).map(|mat| text[mat.start()..mat.end()].to_string()).collect()
+                if let Some(ac) = &self.ac {
+                    ac.find_iter(text).map(|mat| text[mat.start()..mat.end()].to_string()).collect()
+                } else {
+                    Vec::new()
+                }
             }
-            MatchAlgorithm::WuManber => self.wm.as_ref().unwrap().search_all(text),
+            MatchAlgorithm::WuManber => {
+                if let Some(wm) = &self.wm {
+                    wm.search_all_strings(text)
+                } else {
+                    Vec::new()
+                }
+            }
             MatchAlgorithm::Regex => {
-                self.regex_set.as_ref().unwrap().find_iter(text).map(|mat| mat.as_str().to_string()).collect()
+                if let Some(regex) = &self.regex_set {
+                    regex.find_iter(text).map(|mat| mat.as_str().to_string()).collect()
+                } else {
+                    Vec::new()
+                }
             }
         }
     }
+
+    /// Get detailed match information
+    pub fn find_matches_with_positions(&self, text: &str) -> Vec<MatchInfo> {
+        match self.algorithm {
+            MatchAlgorithm::AhoCorasick => {
+                if let Some(ac) = &self.ac {
+                    ac.find_iter(text)
+                        .map(|mat| MatchInfo {
+                            pattern: text[mat.start()..mat.end()].to_string(),
+                            start: mat.start(),
+                            end: mat.end(),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            MatchAlgorithm::WuManber => {
+                if let Some(wm) = &self.wm {
+                    wm.find_matches(text)
+                        .into_iter()
+                        .filter_map(|m| {
+                            let pattern = text.get(m.start..m.end)?;
+                            Some(MatchInfo { pattern: pattern.to_string(), start: m.start, end: m.end })
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            MatchAlgorithm::Regex => {
+                if let Some(regex) = &self.regex_set {
+                    regex
+                        .find_iter(text)
+                        .map(|mat| MatchInfo { pattern: mat.as_str().to_string(), start: mat.start(), end: mat.end() })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+    }
+
+    /// Check if text contains any patterns
+    pub fn contains_any(&self, text: &str) -> bool {
+        self.find_first(text).is_some()
+    }
+
+    /// Get engine statistics
+    pub fn stats(&self) -> EngineStats {
+        EngineStats {
+            algorithm: self.algorithm,
+            pattern_count: self.patterns.len(),
+            memory_usage: self.estimate_memory_usage(),
+        }
+    }
+
+    /// Estimate memory usage
+    fn estimate_memory_usage(&self) -> usize {
+        let patterns_memory = self.patterns.iter().map(|p| p.len()).sum::<usize>();
+
+        let engine_memory = match self.algorithm {
+            MatchAlgorithm::WuManber => {
+                if let Some(wm) = &self.wm {
+                    wm.memory_stats().total_memory
+                } else {
+                    0
+                }
+            }
+            _ => patterns_memory * 2, // Rough estimate for other algorithms
+        };
+
+        patterns_memory + engine_memory
+    }
+}
+
+/// Match information with position details
+#[derive(Debug, Clone)]
+pub struct MatchInfo {
+    pub pattern: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// Engine statistics
+#[derive(Debug, Clone)]
+pub struct EngineStats {
+    pub algorithm: MatchAlgorithm,
+    pub pattern_count: usize,
+    pub memory_usage: usize,
 }

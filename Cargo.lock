@@ -968,11 +968,13 @@ name = "sensitive-rs"
 version = "0.5.0"
 dependencies = [
  "aho-corasick",
+ "hashbrown",
  "lru",
  "pinyin",
  "rayon",
  "regex",
  "reqwest",
+ "smallvec",
 ]
 
 [[package]]

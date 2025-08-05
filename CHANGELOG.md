@@ -22,8 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Bump crate version to 0.5.0 in `Cargo.toml`
-- Update README and examples to cover new APIs
+- Upgraded crate version to 0.5.0
+- Improved algorithm performance for Chinese text
+- Updated documentation with new API examples
+
+### Fixed
+
+- Wu-Manber pattern matching algorithm correctness
+- UTF-8 character boundary handling in match results
+- Test cases for Chinese character processing
 
 ## [0.4.0] - 2025-08-05
 
