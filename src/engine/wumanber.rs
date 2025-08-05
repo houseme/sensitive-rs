@@ -520,20 +520,16 @@ impl WuManber {
 
     /// Get memory usage statistics
     pub fn memory_stats(&self) -> WuManberMemoryStats {
-        let patterns_memory = self.patterns.iter().map(|p| std::mem::size_of::<Arc<String>>() + p.len()).sum::<usize>();
+        let patterns_memory = self.patterns.iter().map(|p| size_of::<Arc<String>>() + p.len()).sum::<usize>();
 
-        let shift_table_memory = self.shift_table.len() * (std::mem::size_of::<u64>() + std::mem::size_of::<usize>());
+        let shift_table_memory = self.shift_table.len() * (size_of::<u64>() + size_of::<usize>());
         let hash_table_memory = self
             .hash_table
             .iter()
-            .map(|(_k, v)| {
-                std::mem::size_of::<u64>()
-                    + std::mem::size_of::<SmallVec<[usize; 4]>>()
-                    + v.len() * std::mem::size_of::<usize>()
-            })
+            .map(|(_k, v)| size_of::<u64>() + size_of::<SmallVec<[usize; 4]>>() + v.len() * size_of::<usize>())
             .sum::<usize>();
 
-        let pattern_set_memory = self.pattern_set.len() * std::mem::size_of::<Arc<String>>();
+        let pattern_set_memory = self.pattern_set.len() * size_of::<Arc<String>>();
 
         let total_memory = patterns_memory + shift_table_memory + hash_table_memory + pattern_set_memory;
 
