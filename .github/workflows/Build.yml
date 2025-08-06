@@ -20,6 +20,8 @@ jobs:
         rustc: [ nightly, stable ] # MSVR and current stable rustc
     steps:
       - uses: actions/checkout@v4
+      - name: AutoCorrect
+        uses: huacnlee/autocorrect-action@main
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rustc }}
