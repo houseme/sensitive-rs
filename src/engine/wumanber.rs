@@ -111,7 +111,7 @@ impl WuManber {
                     }
                 }
 
-                result.trim().to_string()
+                result
             }
         }
     }
@@ -158,10 +158,8 @@ impl WuManber {
         let safe_block_size = block_size.min(min_len);
 
         let patterns_arc: Vec<Arc<String>> = processed_patterns.into_iter().map(Arc::new).collect();
-
         // Build pattern_set for quick lookups
         let pattern_set: HashSet<Arc<String>> = patterns_arc.iter().cloned().collect();
-
         let mut instance = WuManber {
             patterns: patterns_arc,
             original_patterns,
@@ -253,7 +251,7 @@ impl WuManber {
                         let shift = char_count - i - block_size;
                         (hash, shift)
                     })
-                    .collect()
+                    .collect::<Vec<_>>()
             })
             .collect();
 
@@ -340,12 +338,26 @@ impl WuManber {
                             return Some(result);
                         }
                     }
+
+                    let prev_block_start = block_start.saturating_sub(1);
+                    if prev_block_start < block_start {
+                        let prev_block = self.extract_block_optimized(&chars, prev_block_start);
+                        let prev_hash = Self::calculate_hash_fast(&prev_block);
+                        if let Some(prev_pattern_indices) = self.hash_table.get(&prev_hash) {
+                            // Verify the previous position
+                            if let Some(found) = self.verify_matches_arc(&chars, pos - 1, prev_pattern_indices) {
+                                return Some(found);
+                            }
+                        }
+                    }
+
                     pos += 1;
                 } else {
                     pos += shift;
                 }
             } else {
-                pos += self.min_len;
+                // pos += self.min_len;
+                pos += self.min_len.saturating_sub(self.block_size).saturating_add(1);
             }
         }
 
@@ -359,7 +371,7 @@ impl WuManber {
             let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
 
             if processed_text.contains(&processed_pattern) {
-                return Some(self.patterns[i].clone());
+                return self.patterns.get(i).cloned();
             }
         }
         None
@@ -368,15 +380,13 @@ impl WuManber {
     /// Verify potential matches and return Arc pattern
     fn verify_matches_arc(&self, chars: &[char], pos: usize, pattern_indices: &[usize]) -> Option<Arc<String>> {
         for &pattern_idx in pattern_indices {
-            let pattern = &self.patterns[pattern_idx];
-            let pattern_chars: Vec<char> = pattern.chars().collect();
-            let pattern_len = pattern_chars.len();
+            if let Some(pattern) = self.patterns.get(pattern_idx) {
+                let pattern_chars: Vec<char> = pattern.chars().collect();
+                let pattern_len = pattern_chars.len();
 
-            if pos + 1 >= pattern_len {
-                let start = pos + 1 - pattern_len;
-                if start + pattern_len <= chars.len() {
-                    let text_slice = &chars[start..start + pattern_len];
-                    if text_slice == pattern_chars.as_slice() {
+                if pos + 1 >= pattern_len {
+                    let start = pos + 1 - pattern_len;
+                    if chars[start..start + pattern_len] == pattern_chars[..] {
                         return Some(pattern.clone());
                     }
                 }
@@ -392,7 +402,6 @@ impl WuManber {
             for original_pattern in &self.original_patterns {
                 let processed_text = self.preprocess_text(text);
                 let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
-
                 if processed_text.contains(&processed_pattern) {
                     return Some(original_pattern.clone());
                 }
@@ -423,7 +432,9 @@ impl WuManber {
             };
 
             if matches {
-                results.push(self.patterns[i].clone());
+                if let Some(pattern) = self.patterns.get(i) {
+                    results.push(pattern.clone());
+                }
             }
         }
 
@@ -587,11 +598,14 @@ mod tests {
 
     #[test]
     fn test_basic_matching() {
-        let wm = WuManber::new_chinese(vec!["赌博".to_string(), "色情".to_string(), "诈骗".to_string()]);
+        let wm =
+            WuManber::new_chinese(vec!["色情".to_string(), "赌博".to_string(), "诈骗".to_string(), "扯蛋".to_string()]);
 
         assert_eq!(wm.search_string("正常内容"), None);
-        assert_eq!(wm.search_string("含有赌博内容"), Some("赌博".to_string()));
-        assert_eq!(wm.search_string("有色情图片"), Some("色情".to_string()));
+        assert_eq!(wm.search_string("测试含有赌博内容"), Some("赌博".to_string()));
+        assert_eq!(wm.search_string("测试还有色情赌博图片"), Some("色情".to_string()));
+        assert_eq!(wm.search_string("测试有色情赌博图片"), Some("色情".to_string()));
+        assert_eq!(wm.search_string("还有诈骗色情测试"), Some("诈骗".to_string()));
     }
 
     #[test]
