@@ -333,21 +333,20 @@ impl WuManber {
 
             if let Some(&shift) = self.shift_table.get(&hash) {
                 if shift == 0 {
-                    if let Some(pattern_indices) = self.hash_table.get(&hash) {
-                        if let Some(result) = self.verify_matches_arc(&chars, pos, pattern_indices) {
-                            return Some(result);
-                        }
+                    if let Some(pattern_indices) = self.hash_table.get(&hash)
+                        && let Some(result) = self.verify_matches_arc(&chars, pos, pattern_indices)
+                    {
+                        return Some(result);
                     }
 
                     let prev_block_start = block_start.saturating_sub(1);
                     if prev_block_start < block_start {
                         let prev_block = self.extract_block_optimized(&chars, prev_block_start);
                         let prev_hash = Self::calculate_hash_fast(&prev_block);
-                        if let Some(prev_pattern_indices) = self.hash_table.get(&prev_hash) {
-                            // Verify the previous position
-                            if let Some(found) = self.verify_matches_arc(&chars, pos - 1, prev_pattern_indices) {
-                                return Some(found);
-                            }
+                        if let Some(found) = self.hash_table.get(&prev_hash).and_then(|prev_pattern_indices| {
+                            self.verify_matches_arc(&chars, pos - 1, prev_pattern_indices)
+                        }) {
+                            return Some(found);
                         }
                     }
 
@@ -431,10 +430,8 @@ impl WuManber {
                 }
             };
 
-            if matches {
-                if let Some(pattern) = self.patterns.get(i) {
-                    results.push(pattern.clone());
-                }
+            if matches && i < self.patterns.len() {
+                results.push(self.patterns[i].clone());
             }
         }
 
