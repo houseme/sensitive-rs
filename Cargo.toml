@@ -22,7 +22,7 @@ reqwest = { version = "0.12.24", default-features = false, features = ["rustls-t
 aho-corasick = { version = "1.1.3", features = ["perf-literal"] }
 pinyin = "0.10.0"
 rayon = "1.11.0"
-lru = "0.16.1"
+lru = "0.16.2"
 hashbrown = "0.16.0"
 smallvec = "1.15.1"
 
