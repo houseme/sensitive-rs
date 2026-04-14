@@ -18,11 +18,11 @@ include = ["src/**", "dict/**", "Cargo.toml", "README.md", "README_CN.md", "LICE
 
 [dependencies]
 regex = "1.12.3"
-reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "charset", "http2", "system-proxy", "blocking"], optional = true }
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "charset", "http2", "system-proxy", "stream", "json", "blocking", "query", "form"], optional = true }
 aho-corasick = { version = "1.1.4", features = ["perf-literal"] }
 pinyin = "0.11.0"
-rayon = "1.11.0"
-lru = "0.16.3"
+rayon = "1.12.0"
+lru = "0.16.4"
 hashbrown = "0.17.0"
 smallvec = "1.15.1"
 
