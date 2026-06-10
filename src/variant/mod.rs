@@ -1,4 +1,4 @@
-use pinyin::ToPinyin;
+use pinyin::Pinyin;
 use std::collections::HashMap;
 
 /// Variation detector
@@ -26,18 +26,27 @@ impl VariantDetector {
 
     /// Construct pinyin index when adding sensitive words
     pub fn add_word(&mut self, word: &str) {
+        let chars_result = Pinyin::chars(word).with_tone_style(pinyin::ToneStyle::None);
+        let pinyin_lookup: HashMap<char, String> = chars_result
+            .into_iter()
+            .filter_map(|w| {
+                let mut chars = w.text.chars();
+                let ch = chars.next()?;
+                if chars.next().is_none() {
+                    Some((ch, w.pinyin))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let pinyins: Vec<String> = word
             .chars()
             .filter_map(|c| {
-                if let Some(py) = c.to_pinyin() {
-                    let pinyin = py.plain().to_string();
-                    // Create a character to pinyin mapping
+                pinyin_lookup.get(&c).map(|pinyin| {
                     self.char_to_pinyin.insert(c, pinyin.clone());
-                    Some(pinyin)
-                } else {
-                    // For characters that cannot be converted, return None
-                    None
-                }
+                    pinyin.clone()
+                })
             })
             .collect();
 
@@ -86,16 +95,36 @@ impl VariantDetector {
 
     /// Convert text to pinyin
     fn text_to_pinyin(&self, text: &str) -> String {
-        text.chars()
-            .map(|c| {
-                self.char_to_pinyin.get(&c).cloned().unwrap_or_else(|| {
-                    // Convert uncached characters in real time
-                    if let Some(py) = c.to_pinyin() {
-                        py.plain().to_string()
+        // Build pinyin for uncached characters in batch
+        let uncached: String = text
+            .chars()
+            .filter(|c| !self.char_to_pinyin.contains_key(c))
+            .collect();
+        let extra: HashMap<char, String> = if uncached.is_empty() {
+            HashMap::new()
+        } else {
+            Pinyin::chars(&uncached)
+                .with_tone_style(pinyin::ToneStyle::None)
+                .into_iter()
+                .filter_map(|w| {
+                    let mut chars = w.text.chars();
+                    let ch = chars.next()?;
+                    if chars.next().is_none() {
+                        Some((ch, w.pinyin))
                     } else {
-                        c.to_string() // Keep original characters
+                        None
                     }
                 })
+                .collect()
+        };
+
+        text.chars()
+            .map(|c| {
+                self.char_to_pinyin
+                    .get(&c)
+                    .cloned()
+                    .or_else(|| extra.get(&c).cloned())
+                    .unwrap_or_else(|| c.to_string())
             })
             .collect()
     }
