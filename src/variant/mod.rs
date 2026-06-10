@@ -28,10 +28,7 @@ impl VariantDetector {
     pub fn add_word(&mut self, word: &str) {
         let chars_result = Pinyin::chars(word).with_tone_style(pinyin::ToneStyle::None);
         let han_chars: Vec<char> = word.chars().filter(|c| !c.is_ascii()).collect();
-        let pinyin_lookup: HashMap<char, String> = han_chars
-            .into_iter()
-            .zip(chars_result.iter())
-            .collect();
+        let pinyin_lookup: HashMap<char, String> = han_chars.into_iter().zip(chars_result.iter()).collect();
 
         let pinyins: Vec<String> = word
             .chars()
@@ -89,10 +86,8 @@ impl VariantDetector {
     /// Convert text to pinyin
     fn text_to_pinyin(&self, text: &str) -> String {
         // Build pinyin for uncached characters in batch
-        let uncached: Vec<char> = text
-            .chars()
-            .filter(|c| !c.is_ascii() && !self.char_to_pinyin.contains_key(c))
-            .collect();
+        let uncached: Vec<char> =
+            text.chars().filter(|c| !c.is_ascii() && !self.char_to_pinyin.contains_key(c)).collect();
         let extra: HashMap<char, String> = if uncached.is_empty() {
             HashMap::new()
         } else {
@@ -105,11 +100,7 @@ impl VariantDetector {
 
         text.chars()
             .map(|c| {
-                self.char_to_pinyin
-                    .get(&c)
-                    .cloned()
-                    .or_else(|| extra.get(&c).cloned())
-                    .unwrap_or_else(|| c.to_string())
+                self.char_to_pinyin.get(&c).cloned().or_else(|| extra.get(&c).cloned()).unwrap_or_else(|| c.to_string())
             })
             .collect()
     }
