@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.6.0] - 2026-06-11
+
+### Changed
+
+- Migrated from `pinyin` crate to `pinyin-converter` for pinyin conversion
+- Updated variant detector to use `Pinyin::chars()` API with toneless pinyin matching
+- Upgraded crate version to 0.6.0
+
 ## [0.5.0] - 2025-08-06
 
 ### Added

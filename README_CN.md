@@ -31,7 +31,7 @@
 
 ```toml
 [dependencies]
-sensitive-rs = "0.5.0"
+sensitive-rs = "0.6.0"
 ```
 
 ## 快速开始

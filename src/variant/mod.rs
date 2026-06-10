@@ -27,17 +27,10 @@ impl VariantDetector {
     /// Construct pinyin index when adding sensitive words
     pub fn add_word(&mut self, word: &str) {
         let chars_result = Pinyin::chars(word).with_tone_style(pinyin::ToneStyle::None);
-        let pinyin_lookup: HashMap<char, String> = chars_result
+        let han_chars: Vec<char> = word.chars().filter(|c| !c.is_ascii()).collect();
+        let pinyin_lookup: HashMap<char, String> = han_chars
             .into_iter()
-            .filter_map(|w| {
-                let mut chars = w.text.chars();
-                let ch = chars.next()?;
-                if chars.next().is_none() {
-                    Some((ch, w.pinyin))
-                } else {
-                    None
-                }
-            })
+            .zip(chars_result.iter())
             .collect();
 
         let pinyins: Vec<String> = word
@@ -96,25 +89,17 @@ impl VariantDetector {
     /// Convert text to pinyin
     fn text_to_pinyin(&self, text: &str) -> String {
         // Build pinyin for uncached characters in batch
-        let uncached: String = text
+        let uncached: Vec<char> = text
             .chars()
-            .filter(|c| !self.char_to_pinyin.contains_key(c))
+            .filter(|c| !c.is_ascii() && !self.char_to_pinyin.contains_key(c))
             .collect();
         let extra: HashMap<char, String> = if uncached.is_empty() {
             HashMap::new()
         } else {
-            Pinyin::chars(&uncached)
-                .with_tone_style(pinyin::ToneStyle::None)
+            let uncached_str: String = uncached.iter().collect();
+            uncached
                 .into_iter()
-                .filter_map(|w| {
-                    let mut chars = w.text.chars();
-                    let ch = chars.next()?;
-                    if chars.next().is_none() {
-                        Some((ch, w.pinyin))
-                    } else {
-                        None
-                    }
-                })
+                .zip(Pinyin::chars(&uncached_str).with_tone_style(pinyin::ToneStyle::None).iter())
                 .collect()
         };
 
