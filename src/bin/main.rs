@@ -128,11 +128,8 @@ struct ProcessResult {
 }
 
 fn build_filter(cli: &Cli) -> Filter {
-    let mut filter = if let Some(algo) = &cli.algorithm {
-        Filter::with_algorithm(algo.clone().into())
-    } else {
-        Filter::new()
-    };
+    let mut filter =
+        if let Some(algo) = &cli.algorithm { Filter::with_algorithm(algo.clone().into()) } else { Filter::new() };
 
     if let Some(pattern) = &cli.noise_pattern {
         filter.update_noise_pattern(pattern);
@@ -197,11 +194,7 @@ fn use_color(cli: &Cli) -> bool {
 }
 
 fn colored(text: &str, code: &str, enabled: bool) -> String {
-    if enabled {
-        format!("\x1b[{code}m{text}\x1b[0m")
-    } else {
-        text.to_string()
-    }
+    if enabled { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
 }
 
 fn cmd_check(cli: &Cli, filter: &Filter, texts: Vec<(String, Option<&str>)>) {
@@ -225,11 +218,7 @@ fn cmd_check(cli: &Cli, filter: &Filter, texts: Vec<(String, Option<&str>)>) {
             println!("{label}{}", colored("No sensitive words found.", "32", color));
         } else {
             let label = source.map(|s| format!("[{s}] ")).unwrap_or_default();
-            println!(
-                "{}Found {} sensitive word(s):",
-                label,
-                colored(&words.len().to_string(), "31", color),
-            );
+            println!("{}Found {} sensitive word(s):", label, colored(&words.len().to_string(), "31", color),);
             for word in &words {
                 println!("  {}", colored(word, "33", color));
             }
@@ -281,9 +270,7 @@ fn cmd_replace(cli: &Cli, filter: &Filter, replacement: char, texts: Vec<(String
         let output = filter.replace(text, replacement);
 
         if cli.json {
-            let result = ProcessResult {
-                output: output.clone(),
-            };
+            let result = ProcessResult { output: output.clone() };
             all_results.push(serde_json::json!({
                 "source": source,
                 "result": result,
@@ -305,9 +292,7 @@ fn cmd_filter(cli: &Cli, filter: &Filter, texts: Vec<(String, Option<&str>)>) {
         let output = filter.filter(text);
 
         if cli.json {
-            let result = ProcessResult {
-                output: output.clone(),
-            };
+            let result = ProcessResult { output: output.clone() };
             all_results.push(serde_json::json!({
                 "source": source,
                 "result": result,
@@ -335,11 +320,7 @@ fn main() {
             let texts = resolve_texts(text, file);
             cmd_validate(&cli, &filter, texts);
         }
-        Commands::Replace {
-            replacement,
-            text,
-            file,
-        } => {
+        Commands::Replace { replacement, text, file } => {
             let texts = resolve_texts(text, file);
             cmd_replace(&cli, &filter, *replacement, texts);
         }
