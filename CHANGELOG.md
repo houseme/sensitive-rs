@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.7.0] - 2026-06-11
+
+### Added
+
+- CLI tool (`sensitive-rs` binary) with `check`, `validate`, `replace`, `filter` subcommands
+- `cli` feature flag with `clap`, `serde`, `serde_json` dependencies
+- JSON output format via `--json` flag
+- File and stdin input support
+- Colored terminal output with auto TTY detection
+- Exported `MatchAlgorithm` enum from library
+
+### Changed
+
+- Upgraded crate version to 0.7.0
+
 ## [0.6.0] - 2026-06-11
 
 ### Changed

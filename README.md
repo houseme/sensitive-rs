@@ -31,7 +31,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "0.6.0"
+sensitive-rs = "0.7.0"
 ```
 
 ## Quick Start
@@ -76,6 +76,55 @@ use std::io::BufReader;
 let reader = BufReader::new(File::open("large.txt") ? );
 let stream_results = filter.find_all_streaming(reader) ?;
 ```
+
+## CLI Usage
+
+Install with the `cli` feature:
+
+```toml
+[dependencies]
+sensitive-rs = { version = "0.7.0", features = ["cli"] }
+```
+
+Or install directly:
+
+```sh
+cargo install sensitive-rs --features cli
+```
+
+Both `sensitive` and `sensitive-rs` commands are available after installation.
+
+### Commands
+
+```sh
+# Find sensitive words
+sensitive check "含有赌博和色情内容"
+
+# Validate (exit 1 if sensitive words found)
+sensitive validate "clean text"
+
+# Replace sensitive words
+sensitive replace '*' "含有赌博内容"
+
+# Remove sensitive words
+sensitive filter "含有赌博内容"
+
+# Read from file
+sensitive check --file input.txt
+
+# Pipe from stdin
+echo "text" | sensitive check
+```
+
+### Options
+
+- `--dict <path>` — custom dictionary file
+- `--dict-all` — use extended dictionary (27k words)
+- `--algorithm <algo>` — force algorithm: `aho-corasick`, `wumanber`, `regex`
+- `--variant` — enable pinyin and shape variant detection
+- `--noise-pattern <regex>` — custom noise removal regex
+- `--json` — JSON output format
+- `--color` — force colored output
 
 ## Documentation
 

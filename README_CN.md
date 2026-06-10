@@ -31,7 +31,7 @@
 
 ```toml
 [dependencies]
-sensitive-rs = "0.6.0"
+sensitive-rs = "0.7.0"
 ```
 
 ## 快速开始
@@ -77,7 +77,56 @@ let reader = BufReader::new(File::open("large.txt") ? );
 let stream_results = filter.find_all_streaming(reader) ?;
 ```
 
-文档
+## CLI 使用
+
+启用 `cli` 功能安装：
+
+```toml
+[dependencies]
+sensitive-rs = { version = "0.7.0", features = ["cli"] }
+```
+
+或直接安装：
+
+```sh
+cargo install sensitive-rs --features cli
+```
+
+安装后可使用 `sensitive` 和 `sensitive-rs` 两个命令。
+
+### 命令
+
+```sh
+# 查找敏感词
+sensitive check "含有赌博和色情内容"
+
+# 验证文本（发现敏感词时 exit 1）
+sensitive validate "干净文本"
+
+# 替换敏感词
+sensitive replace '*' "含有赌博内容"
+
+# 移除敏感词
+sensitive filter "含有赌博内容"
+
+# 从文件读取
+sensitive check --file input.txt
+
+# 从 stdin 管道读取
+echo "文本" | sensitive check
+```
+
+### 选项
+
+- `--dict <path>` — 自定义词典文件
+- `--dict-all` — 使用扩展词典（2.7 万词）
+- `--algorithm <algo>` — 强制指定算法：`aho-corasick`、`wumanber`、`regex`
+- `--variant` — 启用拼音和形近字变体检测
+- `--noise-pattern <regex>` — 自定义噪声去除正则
+- `--json` — JSON 输出格式
+- `--color` — 强制彩色输出
+
+## 文档
 详细文档请参阅 [Documentation](https://docs.rs/sensitive-rs).
 
 ## 许可证
