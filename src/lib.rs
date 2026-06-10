@@ -29,6 +29,7 @@ mod engine;
 mod filter;
 mod variant;
 
+pub use engine::MatchAlgorithm;
 pub use engine::MultiPatternEngine;
 pub use filter::Filter;
 pub use variant::VariantDetector;
