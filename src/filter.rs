@@ -38,16 +38,16 @@ impl Filter {
     }
 
     fn check_cache(&self, text: &str) -> Option<Vec<String>> {
-        self.cache.lock().unwrap().get(text).cloned()
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).get(text).cloned()
     }
 
     fn cache_result(&self, text: &str, results: &[String]) {
-        self.cache.lock().unwrap().put(text.to_string(), results.to_vec());
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).put(text.to_string(), results.to_vec());
     }
 
     /// Clear the cache
     pub fn clear_cache(&self) {
-        self.cache.lock().unwrap().clear();
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// Create with specific algorithm
@@ -63,8 +63,9 @@ impl Filter {
     }
 
     /// Update noise pattern
-    pub fn update_noise_pattern(&mut self, pattern: &str) {
-        self.noise = Regex::new(pattern).unwrap();
+    pub fn update_noise_pattern(&mut self, pattern: &str) -> Result<(), regex::Error> {
+        self.noise = Regex::new(pattern)?;
+        Ok(())
     }
 
     /// Add a sensitive word
@@ -76,6 +77,7 @@ impl Filter {
         };
         self.engine.rebuild(&patterns);
         self.variant_detector.add_word(word);
+        self.clear_cache();
     }
 
     /// Add multiple words
@@ -87,6 +89,7 @@ impl Filter {
         for word in words {
             self.variant_detector.add_word(word);
         }
+        self.clear_cache();
     }
 
     /// Get the currently used algorithm
@@ -99,6 +102,7 @@ impl Filter {
         let patterns: Vec<_> = self.engine.get_patterns().iter().filter(|&w| w != word).cloned().collect();
 
         self.engine.rebuild(&patterns);
+        self.clear_cache();
     }
 
     /// Remove multiple words
@@ -108,6 +112,7 @@ impl Filter {
             self.engine.get_patterns().iter().filter(|w| !word_set.contains(&w.as_str())).cloned().collect();
 
         self.engine.rebuild(&patterns);
+        self.clear_cache();
     }
 
     /// Load dictionary from file
@@ -248,16 +253,27 @@ impl Filter {
         let chunk_size = std::cmp::max(text.len() / rayon::current_num_threads(), 100);
         let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
 
-        // Parallel processing in segments
-        let engine_results: Vec<String> = text
-            .chars()
-            .collect::<Vec<_>>()
-            .par_chunks(chunk_size)
-            .flat_map(|chunk| {
-                let chunk_text: String = chunk.iter().collect();
-                self.engine.find_all(&chunk_text)
-            })
-            .collect();
+        // Compute overlap to catch patterns spanning chunk boundaries
+        let max_pattern_len = patterns.iter().map(|p| p.chars().count()).max().unwrap_or(0);
+        let overlap = max_pattern_len.min(chunk_size);
+
+        // Build overlapping chunks for parallel processing
+        let chars: Vec<char> = text.chars().collect();
+        let engine_results: Vec<String> = if chars.len() <= chunk_size {
+            self.engine.find_all(text)
+        } else {
+            let step = chunk_size;
+            chars
+                .windows(chunk_size + overlap)
+                .step_by(step)
+                .collect::<Vec<_>>()
+                .par_iter()
+                .flat_map(|window| {
+                    let chunk_text: String = window.iter().collect();
+                    self.engine.find_all(&chunk_text)
+                })
+                .collect()
+        };
 
         // Parallel variant detection - Fixed parallel iterator problem
         let variant_results: Vec<String> = text
@@ -455,5 +471,89 @@ mod tests {
         println!("Recommended algorithm for 150 words: {recommended:?}");
 
         assert!(matches!(medium.current_algorithm(), MatchAlgorithm::AhoCorasick));
+    }
+
+    #[test]
+    fn test_cache_invalidation_on_add_word() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // First search populates cache
+        let results1 = filter.find_all("这里有赌博");
+        assert!(results1.contains(&"赌博".to_string()));
+
+        // Add a new word
+        filter.add_word("色情");
+
+        // Cache should be invalidated — new word must appear
+        let results2 = filter.find_all("这里有赌博和色情");
+        assert!(results2.contains(&"赌博".to_string()));
+        assert!(results2.contains(&"色情".to_string()));
+    }
+
+    #[test]
+    fn test_cache_invalidation_on_del_word() {
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "色情"]);
+
+        // First search populates cache
+        let results1 = filter.find_all("这里有赌博和色情");
+        assert!(results1.contains(&"赌博".to_string()));
+        assert!(results1.contains(&"色情".to_string()));
+
+        // Delete a word
+        filter.del_word("赌博");
+
+        // Cache should be invalidated — deleted word must not appear
+        let results2 = filter.find_all("这里有赌博和色情");
+        assert!(!results2.contains(&"赌博".to_string()));
+        assert!(results2.contains(&"色情".to_string()));
+    }
+
+    #[test]
+    fn test_mutex_poison_recovery() {
+        use std::sync::Arc;
+
+        let filter = Arc::new(Filter::new());
+        let filter_clone = Arc::clone(&filter);
+
+        // Poison the mutex by panicking while holding the lock
+        let handle = std::thread::spawn(move || {
+            let _guard = filter_clone.cache.lock().unwrap();
+            panic!("intentional panic to poison mutex");
+        });
+        let _ = handle.join();
+
+        // Filter should still work — recovers from poisoned mutex
+        let results = filter.find_all("test");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_parallel_search_cross_boundary() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // Build text > 1000 bytes so find_all uses parallel path
+        // Place "赌博" at a position that could land on a chunk boundary
+        let prefix: String = "安全文字".repeat(200); // 800 bytes (4 chars × 3 bytes × 200)
+        let text = format!("{prefix}这里有赌博内容");
+
+        let results = filter.find_all(&text);
+        assert!(results.contains(&"赌博".to_string()));
+    }
+
+    #[test]
+    fn test_parallel_search_no_duplicates() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // Build text > 1000 bytes with the word in the middle
+        let prefix: String = "安全".repeat(300); // 1800 bytes
+        let text = format!("{prefix}赌博{prefix}");
+
+        let results = filter.find_all(&text);
+        let count = results.iter().filter(|w| *w == "赌博").count();
+        assert_eq!(count, 1, "expected exactly 1 match, got {count}");
     }
 }
