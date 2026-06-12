@@ -131,8 +131,11 @@ fn build_filter(cli: &Cli) -> Filter {
     let mut filter =
         if let Some(algo) = &cli.algorithm { Filter::with_algorithm(algo.clone().into()) } else { Filter::new() };
 
-    if let Some(pattern) = &cli.noise_pattern {
-        filter.update_noise_pattern(pattern);
+    if let Some(pattern) = &cli.noise_pattern
+        && let Err(e) = filter.update_noise_pattern(pattern)
+    {
+        eprintln!("Error: invalid noise pattern '{pattern}': {e}");
+        process::exit(1);
     }
 
     if cli.dict_all {

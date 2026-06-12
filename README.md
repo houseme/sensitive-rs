@@ -31,7 +31,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "0.7.0"
+sensitive-rs = "0.8.0"
 ```
 
 ## Quick Start
@@ -83,7 +83,7 @@ Install with the `cli` feature:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "0.7.0", features = ["cli"] }
+sensitive-rs = { version = "0.8.0", features = ["cli"] }
 ```
 
 Or install directly:

@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.8.0] - 2026-06-12
+
+### Fixed
+
+- Cache staleness: clear LRU cache on `add_word`, `add_words`, `del_word`, `del_words`
+- Mutex poisoning cascade: recover from poisoned mutex instead of panicking
+- `update_noise_pattern` panic on invalid regex: now returns `Result<(), regex::Error>`
+- Parallel search missing cross-boundary matches: add overlap between chunks
+- `rustfmt.toml` edition mismatch: update from 2021 to 2024
+
+### Changed
+
+- Upgraded crate version to 0.8.0
+- `update_noise_pattern` now returns `Result` (breaking change)
+
 ## [0.7.0] - 2026-06-11
 
 ### Added

@@ -31,7 +31,7 @@
 
 ```toml
 [dependencies]
-sensitive-rs = "0.7.0"
+sensitive-rs = "0.8.0"
 ```
 
 ## 快速开始
@@ -83,7 +83,7 @@ let stream_results = filter.find_all_streaming(reader) ?;
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "0.7.0", features = ["cli"] }
+sensitive-rs = { version = "0.8.0", features = ["cli"] }
 ```
 
 或直接安装：
