@@ -417,21 +417,111 @@ impl WuManber {
             return Vec::new();
         }
 
+        // For non-strict space handling, use preprocessing approach
+        if self.space_handling != SpaceHandling::Strict {
+            return self.search_all_with_preprocessing(text);
+        }
+
+        // For strict mode, use shift/hash tables for efficient multi-pattern matching
+        let chars: Vec<char> = text.chars().collect();
+        let text_len = chars.len();
+
+        if text_len < self.min_len {
+            return Vec::new();
+        }
+
         let mut results = Vec::new();
+        let mut found_indices = HashSet::new();
+        let mut pos = self.min_len - 1;
 
-        // Use simplified matching logic to ensure correctness
-        for (i, original_pattern) in self.original_patterns.iter().enumerate() {
-            let matches = match self.space_handling {
-                SpaceHandling::Strict => text.contains(original_pattern),
-                _ => {
-                    let processed_text = self.preprocess_text(text);
-                    let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
-                    processed_text.contains(&processed_pattern)
+        while pos < text_len {
+            if pos + 1 < self.block_size {
+                pos += 1;
+                continue;
+            }
+
+            let block_start = pos + 1 - self.block_size;
+            let block = self.extract_block_optimized(&chars, block_start);
+            let hash = Self::calculate_hash_fast(&block);
+
+            if let Some(&shift) = self.shift_table.get(&hash) {
+                if shift == 0 {
+                    // Verify matches at current position
+                    if let Some(pattern_indices) = self.hash_table.get(&hash) {
+                        self.collect_matches(&chars, pos, pattern_indices, &mut found_indices, &mut results);
+                    }
+
+                    // Check previous block position
+                    let prev_block_start = block_start.saturating_sub(1);
+                    if prev_block_start < block_start {
+                        let prev_block = self.extract_block_optimized(&chars, prev_block_start);
+                        let prev_hash = Self::calculate_hash_fast(&prev_block);
+                        if let Some(prev_pattern_indices) = self.hash_table.get(&prev_hash) {
+                            self.collect_matches(
+                                &chars,
+                                pos - 1,
+                                prev_pattern_indices,
+                                &mut found_indices,
+                                &mut results,
+                            );
+                        }
+                    }
+
+                    pos += 1;
+                } else {
+                    pos += shift;
                 }
-            };
+            } else {
+                pos += self.min_len.saturating_sub(self.block_size).saturating_add(1);
+            }
+        }
 
-            if matches && i < self.patterns.len() {
-                results.push(self.patterns[i].clone());
+        results
+    }
+
+    /// Collect matches without duplicates
+    fn collect_matches(
+        &self,
+        chars: &[char],
+        pos: usize,
+        pattern_indices: &[usize],
+        found_indices: &mut HashSet<usize>,
+        results: &mut Vec<Arc<String>>,
+    ) {
+        for &pattern_idx in pattern_indices {
+            if found_indices.contains(&pattern_idx) {
+                continue;
+            }
+
+            if let Some(pattern) = self.patterns.get(pattern_idx) {
+                let pattern_chars: Vec<char> = pattern.chars().collect();
+                let pattern_len = pattern_chars.len();
+
+                if pos + 1 >= pattern_len {
+                    let start = pos + 1 - pattern_len;
+                    if chars[start..start + pattern_len] == pattern_chars[..] {
+                        found_indices.insert(pattern_idx);
+                        results.push(pattern.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Search all with preprocessing for non-strict space handling
+    fn search_all_with_preprocessing(&self, text: &str) -> Vec<Arc<String>> {
+        let mut results = Vec::new();
+        let mut found_indices = HashSet::new();
+        let processed_text = self.preprocess_text(text);
+
+        for (i, original_pattern) in self.original_patterns.iter().enumerate() {
+            let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
+
+            if processed_text.contains(&processed_pattern) && !found_indices.contains(&i) {
+                found_indices.insert(i);
+                if i < self.patterns.len() {
+                    results.push(self.patterns[i].clone());
+                }
             }
         }
 
@@ -440,28 +530,7 @@ impl WuManber {
 
     /// Find all matches returning strings for compatibility
     pub fn search_all_strings(&self, text: &str) -> Vec<String> {
-        if self.patterns.is_empty() || text.is_empty() {
-            return Vec::new();
-        }
-
-        let mut results = Vec::new();
-
-        for original_pattern in &self.original_patterns {
-            let matches = match self.space_handling {
-                SpaceHandling::Strict => text.contains(original_pattern),
-                _ => {
-                    let processed_text = self.preprocess_text(text);
-                    let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
-                    processed_text.contains(&processed_pattern)
-                }
-            };
-
-            if matches {
-                results.push(original_pattern.clone());
-            }
-        }
-
-        results
+        self.search_all(text).iter().map(|arc| (**arc).clone()).collect()
     }
 
     /// Replace all matches with replacement character

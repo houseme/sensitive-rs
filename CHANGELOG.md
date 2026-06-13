@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.9.0] - 2026-06-13
+
+### Fixed
+
+- Wu-Manber `search_all` bypass: use shift/hash tables instead of brute-force for `Strict` mode
+- Algorithm recommendation docs: updated enum comments to match actual recommendation behavior
+- `WuManber` re-export from private module: changed `pub(crate) mod wumanber` to `pub mod wumanber`
+
+### Changed
+
+- `Filter::filter` now uses engine's optimized `replace_all` path
+- Added `Debug` implementations for `Filter`, `MultiPatternEngine`, `VariantDetector`
+- Upgraded crate version to 0.9.0
+
 ## [0.8.0] - 2026-06-12
 
 ### Fixed

@@ -8,6 +8,16 @@ pub struct VariantDetector {
     char_to_pinyin: HashMap<char, String>,    // Character to pinyin mapping
 }
 
+impl std::fmt::Debug for VariantDetector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VariantDetector")
+            .field("pinyin_map_size", &self.pinyin_map.len())
+            .field("shape_map_size", &self.shape_map.len())
+            .field("char_to_pinyin_size", &self.char_to_pinyin.len())
+            .finish()
+    }
+}
+
 impl Default for VariantDetector {
     fn default() -> Self {
         Self::new()

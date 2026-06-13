@@ -1,4 +1,4 @@
-pub(crate) mod wumanber;
+pub mod wumanber;
 use crate::WuManber;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use regex::Regex;
@@ -7,9 +7,15 @@ use std::sync::Arc;
 /// Supported matching algorithm types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatchAlgorithm {
-    AhoCorasick, // Default algorithm, suitable for medium-sized vocabulary
-    WuManber,    // Suitable for large-scale thesaurus
-    Regex,       // Suitable for complex rule matching
+    /// Best for medium-sized vocabulary (101-10,000 patterns)
+    /// Automaton-based, O(n) scan regardless of pattern count
+    AhoCorasick,
+    /// Best for small vocabulary (0-100 patterns)
+    /// Fast with few patterns: small tables, quick scan
+    WuManber,
+    /// Best for very large vocabulary (10,000+ patterns)
+    /// Pattern compilation overhead amortized over many patterns
+    Regex,
 }
 
 /// Multi-pattern matching engine
@@ -19,6 +25,18 @@ pub struct MultiPatternEngine {
     wm: Option<Arc<WuManber>>,    // Wu-Manber Engine
     regex_set: Option<Regex>,     // Regular Expression Engine
     patterns: Vec<String>,        // Store all modes
+}
+
+impl std::fmt::Debug for MultiPatternEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiPatternEngine")
+            .field("algorithm", &self.algorithm)
+            .field("pattern_count", &self.patterns.len())
+            .field("has_ac", &self.ac.is_some())
+            .field("has_wm", &self.wm.is_some())
+            .field("has_regex", &self.regex_set.is_some())
+            .finish()
+    }
 }
 
 impl Default for MultiPatternEngine {
@@ -50,12 +68,16 @@ impl MultiPatternEngine {
         self.build_engines();
     }
 
-    /// Recommended algorithm based on the lexicon
+    /// Recommended algorithm based on the lexicon size
+    ///
+    /// - 0-100 patterns: WuManber (few patterns = small tables, quick scan)
+    /// - 101-10,000 patterns: AhoCorasick (automaton-based, O(n) scan)
+    /// - 10,000+ patterns: Regex (compilation overhead amortized)
     pub fn recommend_algorithm(word_count: usize) -> MatchAlgorithm {
         match word_count {
-            0..=100 => MatchAlgorithm::WuManber,         // Small thesaurus for Wu-Manber
-            101..=10_000 => MatchAlgorithm::AhoCorasick, // Aho-Corasick for medium thesaurus
-            _ => MatchAlgorithm::Regex,                  // Use rules for super large thesaurus
+            0..=100 => MatchAlgorithm::WuManber,
+            101..=10_000 => MatchAlgorithm::AhoCorasick,
+            _ => MatchAlgorithm::Regex,
         }
     }
 

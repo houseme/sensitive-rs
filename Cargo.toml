@@ -1,7 +1,7 @@
 [package]
 name = "sensitive-rs"
 description = "A Rust library for sensitive data detection and filtering, supporting Chinese and English text with trie-based algorithms."
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["houseme <housemecn@gmail.com>"]
@@ -24,7 +24,7 @@ pinyin-converter = "0.1.0"
 rayon = "1.12.0"
 lru = "0.18.0"
 hashbrown = "0.17.1"
-smallvec = "1.15.1"
+smallvec = "1.15.2"
 clap = { version = "4", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }

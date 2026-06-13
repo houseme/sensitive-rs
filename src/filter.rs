@@ -21,6 +21,17 @@ pub struct Filter {
     http_client: reqwest::blocking::Client, // Network request client
 }
 
+impl std::fmt::Debug for Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Filter")
+            .field("engine", &self.engine)
+            .field("variant_detector", &self.variant_detector)
+            .field("noise", &self.noise)
+            .field("cache", &"<LruCache>")
+            .finish()
+    }
+}
+
 impl Filter {
     /// Create a new filter with default settings
     pub fn new() -> Self {
@@ -189,18 +200,13 @@ impl Filter {
     pub fn filter(&self, text: &str) -> String {
         let clean_text = self.remove_noise(text);
 
-        // Get all sensitive words (including variants) that need to be processed
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-        let variants = self.variant_detector.detect(&clean_text, &patterns);
-
-        let mut result = clean_text;
-
-        // Remove sensitive words detected by the engine
-        for pattern in self.engine.get_patterns() {
-            result = result.replace(pattern, "");
-        }
+        // Use engine's optimized replace_all for pattern removal
+        let mut result = self.engine.replace_all(&clean_text, "");
 
         // Remove sensitive words detected by variants
+        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+        let variants = self.variant_detector.detect(&result, &patterns);
+
         for variant in variants {
             result = result.replace(variant, "");
         }
