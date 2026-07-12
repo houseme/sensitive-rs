@@ -205,7 +205,7 @@ mod tests {
     fn test_mixed_script() {
         let mut vd = VariantDetector::new();
         vd.add_word("测试");
-        let results = vd.detect("这是test内容", &["测试"]);
+        let results = vd.detect("这是 test 内容", &["测试"]);
         // "test" pinyin doesn't match "测试"
         assert!(results.is_empty());
     }

@@ -759,11 +759,11 @@ mod tests {
     #[test]
     fn test_mixed_patterns() {
         let mixed_patterns =
-            vec!["关键词2500".to_string(), "关键词 3000".to_string(), "test".to_string(), "hello world".to_string()];
+            vec!["关键词 2500".to_string(), "关键词 3000".to_string(), "test".to_string(), "hello world".to_string()];
 
         let wm = WuManber::new_chinese(mixed_patterns);
 
-        assert_eq!(wm.search_string("包含关键词2500的文本"), Some("关键词2500".to_string()));
+        assert_eq!(wm.search_string("包含关键词 2500 的文本"), Some("关键词 2500".to_string()));
         assert_eq!(wm.search_string("包含关键词 3000 的文本"), Some("关键词 3000".to_string()));
         assert_eq!(wm.search_string("this is test"), Some("test".to_string()));
         assert_eq!(wm.search_string("say hello world"), Some("hello world".to_string()));
@@ -794,7 +794,7 @@ mod tests {
         let wm = WuManber::new_with_space_handling(patterns, SpaceHandling::IgnoreSpaces);
 
         // 这些都应该匹配
-        assert_eq!(wm.search_string("关键词2500"), Some("关键词 2500".to_string()));
+        assert_eq!(wm.search_string("关键词 2500"), Some("关键词 2500".to_string()));
         assert_eq!(wm.search_string("关键词 2500"), Some("关键词 2500".to_string()));
         assert_eq!(wm.search_string("关键词  2500"), Some("关键词 2500".to_string()));
         assert_eq!(wm.search_string("helloworld"), Some("hello world".to_string()));
@@ -803,19 +803,19 @@ mod tests {
 
     #[test]
     fn test_parallel_performance() {
-        let patterns: Vec<String> = (0..5000).map(|i| format!("关键词{i}")).collect();
+        let patterns: Vec<String> = (0..5000).map(|i| format!("关键词 {i}")).collect();
 
         let wm_seq = WuManber::new(patterns.clone(), 2);
         let wm_par = WuManber::new_parallel(patterns, 2);
 
-        let text = "这里包含关键词2500和关键词3000";
+        let text = "这里包含关键词 2500 和关键词 3000";
 
         let result_seq = wm_seq.search_all_strings(text);
         let result_par = wm_par.search_all_strings(text);
 
         assert_eq!(result_seq.len(), result_par.len());
-        assert!(result_seq.contains(&"关键词2500".to_string()));
-        assert!(result_seq.contains(&"关键词3000".to_string()));
+        assert!(result_seq.contains(&"关键词 2500".to_string()));
+        assert!(result_seq.contains(&"关键词 3000".to_string()));
 
         for item in &result_seq {
             assert!(result_par.contains(item));
@@ -865,7 +865,7 @@ mod tests {
     fn test_find_matches_mixed_ascii_and_multibyte() {
         // Mixed-script text with multiple matches must not panic.
         let wm = WuManber::new_chinese(vec!["ab".to_string(), "赌博".to_string()]);
-        let text = "x赌博y赌博z";
+        let text = "x 赌博 y 赌博 z";
         let matches = wm.find_matches(text);
         assert_eq!(matches.len(), 2);
         assert!(matches.iter().all(|m| &text[m.start..m.end] == "赌博"));
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn test_replace_all_overlapping_leftmost_longest() {
-        // 赌 ⊂ 赌博 ⊂ 赌博机: leftmost-longest replaces the whole "赌博机" (3 chars).
+        // 赌 ⊂ 赌博 ⊂ 赌博机：leftmost-longest replaces the whole "赌博机" (3 chars).
         let wm = WuManber::new_chinese(vec!["赌".to_string(), "赌博".to_string(), "赌博机".to_string()]);
         assert_eq!(wm.replace_all("赌博机", '*'), "***");
         assert_eq!(wm.remove_all("赌博机"), "");

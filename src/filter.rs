@@ -4,6 +4,7 @@ use lru::LruCache;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use regex::Regex;
+use std::collections::HashSet;
 use std::num::NonZero;
 use std::sync::{Arc, Mutex};
 use std::{
@@ -57,6 +58,28 @@ impl Filter {
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).put(text.to_string(), results.to_vec());
     }
 
+    fn word_match_variants(word: &str) -> Vec<String> {
+        let mut variants = vec![word.to_string()];
+        if word.chars().any(char::is_whitespace) {
+            let folded: String = word.chars().filter(|c| !c.is_whitespace()).collect();
+            if !folded.is_empty() && folded != word {
+                variants.push(folded);
+            }
+        }
+        variants
+    }
+
+    fn extend_patterns_with_word_variants(patterns: &mut Vec<String>, words: &[&str]) {
+        let mut seen: HashSet<String> = patterns.iter().cloned().collect();
+        for word in words {
+            for variant in Self::word_match_variants(word) {
+                if seen.insert(variant.clone()) {
+                    patterns.push(variant);
+                }
+            }
+        }
+    }
+
     /// Clear the cache
     pub fn clear_cache(&self) {
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -82,24 +105,25 @@ impl Filter {
 
     /// Add a sensitive word
     pub fn add_word(&mut self, word: &str) {
-        let patterns = {
-            let mut p = self.engine.get_patterns().to_vec();
-            p.push(word.to_string());
-            p
-        };
+        let mut patterns = self.engine.get_patterns().to_vec();
+        Self::extend_patterns_with_word_variants(&mut patterns, &[word]);
         self.engine.rebuild(&patterns);
-        self.variant_detector.add_word(word);
+        for variant in Self::word_match_variants(word) {
+            self.variant_detector.add_word(&variant);
+        }
         self.clear_cache();
     }
 
     /// Add multiple words
     pub fn add_words(&mut self, words: &[&str]) {
         let mut patterns = self.engine.get_patterns().to_vec();
-        patterns.extend(words.iter().map(|s| s.to_string()));
+        Self::extend_patterns_with_word_variants(&mut patterns, words);
 
         self.engine.rebuild(&patterns);
         for word in words {
-            self.variant_detector.add_word(word);
+            for variant in Self::word_match_variants(word) {
+                self.variant_detector.add_word(&variant);
+            }
         }
         self.clear_cache();
     }
@@ -111,7 +135,8 @@ impl Filter {
 
     /// Remove a word
     pub fn del_word(&mut self, word: &str) {
-        let patterns: Vec<_> = self.engine.get_patterns().iter().filter(|&w| w != word).cloned().collect();
+        let word_set: HashSet<_> = Self::word_match_variants(word).into_iter().collect();
+        let patterns: Vec<_> = self.engine.get_patterns().iter().filter(|w| !word_set.contains(*w)).cloned().collect();
 
         self.engine.rebuild(&patterns);
         self.clear_cache();
@@ -119,9 +144,8 @@ impl Filter {
 
     /// Remove multiple words
     pub fn del_words(&mut self, words: &[&str]) {
-        let word_set: std::collections::HashSet<_> = words.iter().collect();
-        let patterns: Vec<_> =
-            self.engine.get_patterns().iter().filter(|w| !word_set.contains(&w.as_str())).cloned().collect();
+        let word_set: HashSet<String> = words.iter().flat_map(|word| Self::word_match_variants(word)).collect();
+        let patterns: Vec<_> = self.engine.get_patterns().iter().filter(|w| !word_set.contains(*w)).cloned().collect();
 
         self.engine.rebuild(&patterns);
         self.clear_cache();
@@ -474,6 +498,41 @@ mod tests {
 
         assert_eq!(filter.find_in("word2"), (true, "word2".to_string()));
         Ok(())
+    }
+
+    #[test]
+    fn test_space_folded_word_matches_both_forms() {
+        let mut filter = Filter::new();
+        filter.add_word("A 级");
+
+        assert_eq!(filter.find_in("含有 A 级 内容"), (true, "A 级".to_string()));
+        assert_eq!(filter.find_in("含有 A级 内容"), (true, "A级".to_string()));
+
+        let results = filter.find_all("A 级 和 A级");
+        assert!(results.contains(&"A 级".to_string()));
+        assert!(results.contains(&"A级".to_string()));
+    }
+
+    #[test]
+    fn test_loaded_space_word_adds_folded_match() -> io::Result<()> {
+        let mut filter = Filter::new();
+        filter.load(Cursor::new("A 级\n3 级片"))?;
+
+        assert_eq!(filter.find_in("这里有 A级 内容"), (true, "A级".to_string()));
+        assert_eq!(filter.find_in("这里有 3级片 内容"), (true, "3级片".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete_space_word_removes_both_forms() {
+        let mut filter = Filter::new();
+        filter.add_words(&["A 级", "B 级"]);
+
+        filter.del_word("A 级");
+
+        assert_eq!(filter.find_in("含有 A 级 内容"), (false, String::new()));
+        assert_eq!(filter.find_in("含有 A级 内容"), (false, String::new()));
+        assert_eq!(filter.find_in("含有 B级 内容"), (true, "B级".to_string()));
     }
 
     #[test]

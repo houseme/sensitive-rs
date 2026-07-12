@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dictionary entries that contain whitespace are now loaded with both the original form and a whitespace-folded form, so entries like `A 级` also match `A级`.
+
 ## [1.1.0] - 2026-07-13
 
 ### Added
