@@ -566,7 +566,11 @@ impl WuManber {
                 let absolute_start = start + pos;
                 let absolute_end = absolute_start + pattern.len();
                 matches.push(Match { start: absolute_start, end: absolute_end });
-                start = absolute_start + 1;
+                // Advance by one *character* (not one byte) so we stay on a UTF-8
+                // boundary for the next `text[start..]` slice while still surfacing
+                // overlapping occurrences. Advancing by a single byte panicked on
+                // multi-byte text ("start byte index is not a char boundary").
+                start = absolute_start + text[absolute_start..].chars().next().map_or(1, char::len_utf8);
             }
         }
 
@@ -780,5 +784,41 @@ mod tests {
         assert!(results.contains(&"苹果".to_string()));
         assert!(results.contains(&"香蕉".to_string()));
         assert!(results.contains(&"橙子".to_string()));
+    }
+
+    #[test]
+    fn test_find_matches_multibyte_positions() {
+        // Regression: find_matches used to panic on multi-byte text because the
+        // scan cursor advanced by 1 byte instead of 1 character.
+        let wm = WuManber::new_chinese(vec!["赌博".to_string()]);
+
+        let text = "含有赌博内容";
+        let matches = wm.find_matches(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].start, 6); // "含有" = 6 bytes
+        assert_eq!(matches[0].end, 12); // "赌博" = 6 bytes
+        assert_eq!(&text[matches[0].start..matches[0].end], "赌博");
+    }
+
+    #[test]
+    fn test_find_matches_multiple_multibyte_occurrences() {
+        // Two non-overlapping occurrences must both be reported without panicking.
+        let wm = WuManber::new_chinese(vec!["赌博".to_string()]);
+        let text = "赌博和赌博";
+        let matches = wm.find_matches(text);
+        assert_eq!(matches.len(), 2);
+        for m in &matches {
+            assert_eq!(&text[m.start..m.end], "赌博");
+        }
+    }
+
+    #[test]
+    fn test_find_matches_mixed_ascii_and_multibyte() {
+        // Mixed-script text with multiple matches must not panic.
+        let wm = WuManber::new_chinese(vec!["ab".to_string(), "赌博".to_string()]);
+        let text = "x赌博y赌博z";
+        let matches = wm.find_matches(text);
+        assert_eq!(matches.len(), 2);
+        assert!(matches.iter().all(|m| &text[m.start..m.end] == "赌博"));
     }
 }

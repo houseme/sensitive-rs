@@ -562,4 +562,135 @@ mod tests {
         let count = results.iter().filter(|w| *w == "赌博").count();
         assert_eq!(count, 1, "expected exactly 1 match, got {count}");
     }
+
+    // ---- Task 2: advanced methods (batch / layered / streaming) ----
+
+    #[test]
+    fn test_find_all_batch() {
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "色情"]);
+
+        let texts = vec!["含有赌博", "含有色情", "正常内容"];
+        let results = filter.find_all_batch(&texts);
+
+        assert_eq!(results.len(), 3);
+        assert!(results[0].contains(&"赌博".to_string()));
+        assert!(results[1].contains(&"色情".to_string()));
+        assert!(results[2].is_empty());
+    }
+
+    #[test]
+    fn test_find_all_batch_empty() {
+        let filter = Filter::new();
+        let results = filter.find_all_batch(&[]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_find_all_layered_prefers_longest() {
+        let mut filter = Filter::new();
+        filter.add_words(&["赌", "赌博", "赌博机"]);
+
+        // Longest match consumes the span; shorter overlapping words are dropped.
+        let results = filter.find_all_layered("这里有赌博机");
+        assert!(results.contains(&"赌博机".to_string()));
+        assert!(!results.contains(&"赌".to_string()));
+        assert!(!results.contains(&"赌博".to_string()));
+    }
+
+    #[test]
+    fn test_find_all_streaming_multiline() {
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "色情"]);
+
+        let input = "第一行含有赌博\n第二行含有色情\n第三行正常";
+        let cursor = std::io::Cursor::new(input);
+        let results = filter.find_all_streaming(cursor).unwrap();
+
+        assert!(results.contains(&"赌博".to_string()));
+        assert!(results.contains(&"色情".to_string()));
+        assert_eq!(results.len(), 2);
+    }
+
+    // ---- Task 3: LRU cache behavior ----
+
+    #[test]
+    fn test_cache_hit_returns_consistent_results() {
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "色情"]);
+
+        // First call — cache miss; second call — cache hit.
+        let r1 = filter.find_all("含有赌博和色情内容");
+        let r2 = filter.find_all("含有赌博和色情内容");
+        assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn test_cache_clear() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        filter.find_all("含有赌博"); // populate cache
+        filter.clear_cache();
+
+        // After clear, the result is recomputed (still correct).
+        let results = filter.find_all("含有赌博");
+        assert!(results.contains(&"赌博".to_string()));
+    }
+
+    // ---- Task 4: edge cases ----
+
+    #[test]
+    fn test_empty_text() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        assert_eq!(filter.find_in(""), (false, String::new()));
+        assert!(filter.find_all("").is_empty());
+        assert_eq!(filter.replace("", '*'), "");
+        assert_eq!(filter.filter(""), "");
+    }
+
+    #[test]
+    fn test_empty_dictionary() {
+        let filter = Filter::new();
+
+        assert_eq!(filter.find_in("任何文本"), (false, String::new()));
+        assert!(filter.find_all("任何文本").is_empty());
+        assert_eq!(filter.replace("任何文本", '*'), "任何文本");
+        assert_eq!(filter.filter("任何文本"), "任何文本");
+    }
+
+    #[test]
+    fn test_unicode_emoji_does_not_interfere() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // Emoji are stripped by the noise regex; surrounding CJK still matches.
+        let (found, word) = filter.find_in("🎉 赌博 🎰");
+        assert!(found);
+        assert_eq!(word, "赌博");
+    }
+
+    #[test]
+    fn test_very_long_text() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // 100_000 chars = 300_000 bytes, exercises the >1000-byte parallel path.
+        let long_text = "正常".repeat(100_000) + "赌博";
+        let results = filter.find_all(&long_text);
+        assert!(results.contains(&"赌博".to_string()));
+    }
+
+    #[test]
+    fn test_cjk_extension_b_chars() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // CJK Extension B (outside BMP); preceding CJK still matches.
+        let text = "含有赌博内容 𠀀𠀁";
+        let (found, _) = filter.find_in(text);
+        assert!(found);
+    }
 }

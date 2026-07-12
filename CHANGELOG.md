@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Comprehensive test coverage closing the gaps identified in the v1.0.0 audit (no production code changes):
+  - `VariantDetector` unit tests (10 tests): pinyin/shape detection, sort+dedup, empty/ASCII/mixed-script/multi-word edge cases
+  - `MultiPatternEngine` direct tests (14 tests): `find_first`/`find_all`/`replace_all`/`contains_any`/`find_matches_with_positions`/`stats` across all three algorithms (AhoCorasick, WuManber, Regex)
+  - `Filter` advanced method tests: `find_all_batch`, `find_all_layered` (longest-match preference), `find_all_streaming` (multi-line)
+  - `Filter` LRU cache behavior tests: cache hit consistency, explicit clear
+  - `Filter` edge case tests: empty text, empty dictionary, emoji noise stripping, very long text (100K chars, parallel path), CJK Extension B
+  - CLI integration tests (7 tests, `tests/cli_tests.rs`): check/validate/replace/filter subcommands and JSON output, pinned to a fixture dictionary for deterministic results
+
+### Fixed
+
+- `WuManber::find_matches` no longer panics on multi-byte text: the scan cursor now advances by one UTF-8 character instead of one byte, so the next `text[start..]` slice stays on a character boundary. This makes `MultiPatternEngine::find_matches_with_positions` usable under the default WuManber algorithm for Chinese text. Surfaced by the new test coverage and locked in with regression tests in both the `wumanber` and `engine` modules. (`Filter::find_all`/`find_in`/`search` were unaffected — they don't use `find_matches`.)
+
 ## [Released]
 
 ## [0.9.0] - 2026-06-13

@@ -147,3 +147,97 @@ impl VariantDetector {
         map
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pinyin_detection() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let results = vd.detect("dubo", &["赌博"]);
+        assert_eq!(results, vec!["赌博"]);
+    }
+
+    #[test]
+    fn test_pinyin_no_match() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let results = vd.detect("hello", &["赌博"]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_shape_variant_detection() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        // "睹" is a shape variant of "赌"
+        let results = vd.detect("睹博", &["赌博"]);
+        assert_eq!(results, vec!["赌博"]);
+    }
+
+    #[test]
+    fn test_shape_no_match_different_length() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let results = vd.detect("赌", &["赌博"]);
+        assert!(results.is_empty()); // different length
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let results = vd.detect("", &["赌博"]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_all_ascii_input() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let results = vd.detect("hello world", &["赌博"]);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_mixed_script() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("测试");
+        let results = vd.detect("这是test内容", &["测试"]);
+        // "test" pinyin doesn't match "测试"
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_words() {
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        vd.add_word("色情");
+        let results = vd.detect("dubo and seqing", &["赌博", "色情"]);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_detect_dedup() {
+        // A single original word can be matched by both the pinyin and shape
+        // paths simultaneously; `detect` must sort+dedup so it appears once.
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let results = vd.detect("睹博", &["赌博"]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results, vec!["赌博"]);
+    }
+
+    #[test]
+    fn test_detect_returns_borrowed_slices() {
+        // detect returns references into the caller's `original_words` slice,
+        // not freshly allocated Strings.
+        let mut vd = VariantDetector::new();
+        vd.add_word("赌博");
+        let words = ["赌博"];
+        let results = vd.detect("dubo", &words);
+        assert!(results.iter().all(|r| words.contains(r)));
+    }
+}

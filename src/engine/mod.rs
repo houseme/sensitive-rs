@@ -308,3 +308,151 @@ pub struct EngineStats {
     pub pattern_count: usize,
     pub memory_usage: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build an engine from `&str` patterns using the auto-selected algorithm.
+    fn engine_with(patterns: &[&str]) -> MultiPatternEngine {
+        let owned: Vec<String> = patterns.iter().map(|s| s.to_string()).collect();
+        MultiPatternEngine::new(None, &owned)
+    }
+
+    #[test]
+    fn test_engine_find_first() {
+        let engine = engine_with(&["赌博", "色情"]);
+        assert_eq!(engine.find_first("含有赌博"), Some("赌博".to_string()));
+        assert_eq!(engine.find_first("正常"), None);
+    }
+
+    #[test]
+    fn test_engine_find_all() {
+        let engine = engine_with(&["赌博", "色情"]);
+        let results = engine.find_all("含有赌博和色情");
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_engine_replace_all_wumanber() {
+        // Default for small pattern sets is WuManber, which repeats the
+        // replacement char per matched character: "赌博"(2 chars) -> "**".
+        let engine = engine_with(&["赌博"]);
+        assert_eq!(engine.current_algorithm(), MatchAlgorithm::WuManber);
+        assert_eq!(engine.replace_all("含有赌博内容", "*"), "含有**内容");
+    }
+
+    #[test]
+    fn test_engine_replace_all_empty_is_removal() {
+        let engine = engine_with(&["赌博"]);
+        assert_eq!(engine.replace_all("含有赌博内容", ""), "含有内容");
+    }
+
+    #[test]
+    fn test_engine_contains_any() {
+        let engine = engine_with(&["赌博"]);
+        assert!(engine.contains_any("含有赌博"));
+        assert!(!engine.contains_any("正常"));
+    }
+
+    #[test]
+    fn test_engine_find_matches_with_positions() {
+        // AhoCorasick yields correct byte offsets.
+        // (WuManber's find_matches currently panics on multi-byte text — a known
+        // issue tracked in CHANGELOG [Unreleased]; AhoCorasick/Regex are correct.)
+        let mut engine = engine_with(&["赌博"]);
+        engine.rebuild_with_algorithm(&["赌博".to_string()], MatchAlgorithm::AhoCorasick);
+        let text = "含有赌博内容";
+        let matches = engine.find_matches_with_positions(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pattern, "赌博");
+        assert_eq!(matches[0].start, 6); // "含有" = 6 bytes
+        assert_eq!(matches[0].end, 12); // "赌博" = 6 bytes
+        assert_eq!(&text[matches[0].start..matches[0].end], "赌博");
+    }
+
+    #[test]
+    fn test_engine_find_matches_with_positions_regex() {
+        let mut engine = engine_with(&["赌博"]);
+        engine.rebuild_with_algorithm(&["赌博".to_string()], MatchAlgorithm::Regex);
+        let text = "含有赌博内容";
+        let matches = engine.find_matches_with_positions(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pattern, "赌博");
+        assert_eq!(&text[matches[0].start..matches[0].end], "赌博");
+    }
+
+    #[test]
+    fn test_engine_stats() {
+        let engine = engine_with(&["赌博", "色情"]);
+        let stats = engine.stats();
+        assert_eq!(stats.pattern_count, 2);
+        assert_eq!(stats.algorithm, MatchAlgorithm::WuManber); // 2 patterns -> WuManber
+    }
+
+    #[test]
+    fn test_engine_empty() {
+        let engine = MultiPatternEngine::default();
+        assert!(engine.find_all("任何文本").is_empty());
+        assert_eq!(engine.find_first("任何文本"), None);
+        assert!(!engine.contains_any("任何文本"));
+    }
+
+    #[test]
+    fn test_engine_get_patterns() {
+        let engine = engine_with(&["赌博", "色情"]);
+        let patterns = engine.get_patterns();
+        assert_eq!(patterns.len(), 2);
+        assert!(patterns.contains(&"赌博".to_string()));
+    }
+
+    #[test]
+    fn test_engine_algorithm_recommendation() {
+        assert_eq!(MultiPatternEngine::recommend_algorithm(0), MatchAlgorithm::WuManber);
+        assert_eq!(MultiPatternEngine::recommend_algorithm(100), MatchAlgorithm::WuManber);
+        assert_eq!(MultiPatternEngine::recommend_algorithm(101), MatchAlgorithm::AhoCorasick);
+        assert_eq!(MultiPatternEngine::recommend_algorithm(10_000), MatchAlgorithm::AhoCorasick);
+        assert_eq!(MultiPatternEngine::recommend_algorithm(10_001), MatchAlgorithm::Regex);
+    }
+
+    #[test]
+    fn test_engine_force_algorithm_aho_corasick() {
+        let mut engine = engine_with(&["赌博"]);
+        engine.rebuild_with_algorithm(&["赌博".to_string()], MatchAlgorithm::AhoCorasick);
+        assert_eq!(engine.current_algorithm(), MatchAlgorithm::AhoCorasick);
+        assert_eq!(engine.find_first("含有赌博"), Some("赌博".to_string()));
+        // AhoCorasick replaces the whole match with the single replacement string.
+        assert_eq!(engine.replace_all("含有赌博内容", "*"), "含有*内容");
+    }
+
+    #[test]
+    fn test_engine_force_algorithm_regex() {
+        let mut engine = engine_with(&["赌博"]);
+        engine.rebuild_with_algorithm(&["赌博".to_string()], MatchAlgorithm::Regex);
+        assert_eq!(engine.current_algorithm(), MatchAlgorithm::Regex);
+        assert!(engine.contains_any("含有赌博"));
+        // Regex also replaces the whole match with the single replacement string.
+        assert_eq!(engine.replace_all("含有赌博内容", "*"), "含有*内容");
+    }
+
+    #[test]
+    fn test_engine_force_algorithm_wumanber() {
+        let mut engine = MultiPatternEngine::default();
+        engine.rebuild_with_algorithm(&["赌博".to_string()], MatchAlgorithm::WuManber);
+        assert_eq!(engine.current_algorithm(), MatchAlgorithm::WuManber);
+        assert_eq!(engine.find_all("含有赌博").len(), 1);
+    }
+
+    #[test]
+    fn test_engine_find_matches_with_positions_wumanber() {
+        // Regression for the WuManber find_matches multi-byte panic (now fixed):
+        // default small-set algorithm is WuManber and must yield correct offsets.
+        let engine = engine_with(&["赌博"]);
+        assert_eq!(engine.current_algorithm(), MatchAlgorithm::WuManber);
+        let text = "含有赌博内容";
+        let matches = engine.find_matches_with_positions(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pattern, "赌博");
+        assert_eq!(&text[matches[0].start..matches[0].end], "赌博");
+    }
+}
