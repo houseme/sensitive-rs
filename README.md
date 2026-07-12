@@ -19,11 +19,12 @@ A high-performance Rust crate for multi-pattern string matching, validation, fil
 - Multi-algorithm engine: Aho-Corasick, Wu-Manber, Regex
 - Noise removal via configurable regex
 - Variant detection (拼音、形似字)
-- Parallel search with `rayon`
+- Parallel search with optional `rayon` support (`parallel` feature, enabled by default)
 - LRU cache for hot queries
 - Batch processing: `find_all_batch`
 - Layered matching: `find_all_layered`
 - Streaming processing: `find_all_streaming`
+- Criterion benchmarks and runnable examples for release validation
 
 ## Installation
 
@@ -31,7 +32,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "0.8.0"
+sensitive-rs = "1.1.0"
+```
+
+For environments that should avoid `rayon` (for example WASM or embedded targets), disable default features:
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.1.0", default-features = false }
 ```
 
 ## Quick Start
@@ -58,7 +66,7 @@ Batch processing:
 
 ```rust
 let texts = vec!["text1", "text2"];
-let results = filter.find_all_batch( & texts);
+let results = filter.find_all_batch(&texts);
 ```
 
 Layered matching:
@@ -73,8 +81,8 @@ Streaming large files:
 use std::fs::File;
 use std::io::BufReader;
 
-let reader = BufReader::new(File::open("large.txt") ? );
-let stream_results = filter.find_all_streaming(reader) ?;
+let reader = BufReader::new(File::open("large.txt")?);
+let stream_results = filter.find_all_streaming(reader)?;
 ```
 
 ## CLI Usage
@@ -83,7 +91,7 @@ Install with the `cli` feature:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "0.8.0", features = ["cli"] }
+sensitive-rs = { version = "1.1.0", features = ["cli"] }
 ```
 
 Or install directly:
@@ -125,6 +133,16 @@ echo "text" | sensitive check
 - `--noise-pattern <regex>` — custom noise removal regex
 - `--json` — JSON output format
 - `--color` — force colored output
+
+## Examples and Benchmarks
+
+```sh
+cargo run --example basic
+cargo run --example batch
+cargo run --example custom_dict
+cargo run --example variant
+cargo bench
+```
 
 ## Documentation
 

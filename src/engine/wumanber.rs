@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+#[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use smallvec::SmallVec;
 use std::collections::HashSet;
@@ -171,11 +172,19 @@ impl WuManber {
             space_handling,
         };
 
-        if parallel {
-            instance.build_tables_parallel();
-        } else {
-            instance.build_tables();
+        // Parallel table building only when the `parallel` feature is enabled;
+        // otherwise fall back to the sequential builder.
+        #[cfg(feature = "parallel")]
+        {
+            if parallel {
+                instance.build_tables_parallel();
+                return instance;
+            }
         }
+        #[cfg(not(feature = "parallel"))]
+        let _ = parallel;
+
+        instance.build_tables();
 
         instance
     }
@@ -187,6 +196,7 @@ impl WuManber {
     }
 
     /// Build shift and hash tables in parallel with memory optimization
+    #[cfg(feature = "parallel")]
     fn build_tables_parallel(&mut self) {
         self.build_shift_table_parallel();
         self.build_hash_table_parallel();
@@ -230,6 +240,7 @@ impl WuManber {
     }
 
     /// Build shift table in parallel with proper iterator handling
+    #[cfg(feature = "parallel")]
     fn build_shift_table_parallel(&mut self) {
         let block_size = self.block_size;
 
@@ -261,6 +272,7 @@ impl WuManber {
     }
 
     /// Build hash table in parallel with memory optimization
+    #[cfg(feature = "parallel")]
     fn build_hash_table_parallel(&mut self) {
         let block_size = self.block_size;
 
@@ -411,29 +423,40 @@ impl WuManber {
         self.search(text).map(|arc| (*arc).clone())
     }
 
-    /// Find all matches in text with space handling
+    /// Find all matches in text (deduplicated pattern names).
     pub fn search_all(&self, text: &str) -> Vec<Arc<String>> {
         if self.patterns.is_empty() || text.is_empty() {
             return Vec::new();
         }
-
-        // For non-strict space handling, use preprocessing approach
         if self.space_handling != SpaceHandling::Strict {
             return self.search_all_with_preprocessing(text);
         }
 
-        // For strict mode, use shift/hash tables for efficient multi-pattern matching
         let chars: Vec<char> = text.chars().collect();
-        let text_len = chars.len();
-
-        if text_len < self.min_len {
-            return Vec::new();
-        }
-
         let mut results = Vec::new();
         let mut found_indices = HashSet::new();
-        let mut pos = self.min_len - 1;
+        self.scan_core(&chars, |pattern_idx, _start, _len| {
+            if found_indices.insert(pattern_idx) {
+                if let Some(pattern) = self.patterns.get(pattern_idx) {
+                    results.push(pattern.clone());
+                }
+            }
+        });
+        results
+    }
 
+    /// Core table-driven scan (Strict mode). Walks the text with the shift/hash
+    /// tables — the same logic `search_all` used to inline — and for every
+    /// verified occurrence (including overlaps) calls
+    /// `on_match(pattern_idx, char_start, char_len)`. The caller decides the
+    /// collect strategy, so `search_all` (dedup by pattern) and `find_matches`
+    /// (collect every position) share one scan implementation instead of two.
+    fn scan_core(&self, chars: &[char], mut on_match: impl FnMut(usize, usize, usize)) {
+        let text_len = chars.len();
+        if text_len < self.min_len {
+            return;
+        }
+        let mut pos = self.min_len - 1;
         while pos < text_len {
             if pos + 1 < self.block_size {
                 pos += 1;
@@ -441,32 +464,23 @@ impl WuManber {
             }
 
             let block_start = pos + 1 - self.block_size;
-            let block = self.extract_block_optimized(&chars, block_start);
+            let block = self.extract_block_optimized(chars, block_start);
             let hash = Self::calculate_hash_fast(&block);
 
             if let Some(&shift) = self.shift_table.get(&hash) {
                 if shift == 0 {
-                    // Verify matches at current position
                     if let Some(pattern_indices) = self.hash_table.get(&hash) {
-                        self.collect_matches(&chars, pos, pattern_indices, &mut found_indices, &mut results);
+                        self.verify_and_emit(chars, pos, pattern_indices, &mut on_match);
                     }
-
-                    // Check previous block position
+                    // Overlap handling: re-check the previous block.
                     let prev_block_start = block_start.saturating_sub(1);
                     if prev_block_start < block_start {
-                        let prev_block = self.extract_block_optimized(&chars, prev_block_start);
+                        let prev_block = self.extract_block_optimized(chars, prev_block_start);
                         let prev_hash = Self::calculate_hash_fast(&prev_block);
                         if let Some(prev_pattern_indices) = self.hash_table.get(&prev_hash) {
-                            self.collect_matches(
-                                &chars,
-                                pos - 1,
-                                prev_pattern_indices,
-                                &mut found_indices,
-                                &mut results,
-                            );
+                            self.verify_and_emit(chars, pos - 1, prev_pattern_indices, &mut on_match);
                         }
                     }
-
                     pos += 1;
                 } else {
                     pos += shift;
@@ -475,33 +489,26 @@ impl WuManber {
                 pos += self.min_len.saturating_sub(self.block_size).saturating_add(1);
             }
         }
-
-        results
     }
 
-    /// Collect matches without duplicates
-    fn collect_matches(
+    /// Verify candidate patterns whose suffix block sits at `pos` (match ends at
+    /// `pos`, so start = pos+1-len) and emit each that actually matches. No
+    /// dedup — that is the caller's responsibility.
+    fn verify_and_emit(
         &self,
         chars: &[char],
         pos: usize,
         pattern_indices: &[usize],
-        found_indices: &mut HashSet<usize>,
-        results: &mut Vec<Arc<String>>,
+        on_match: &mut impl FnMut(usize, usize, usize),
     ) {
         for &pattern_idx in pattern_indices {
-            if found_indices.contains(&pattern_idx) {
-                continue;
-            }
-
             if let Some(pattern) = self.patterns.get(pattern_idx) {
                 let pattern_chars: Vec<char> = pattern.chars().collect();
                 let pattern_len = pattern_chars.len();
-
                 if pos + 1 >= pattern_len {
                     let start = pos + 1 - pattern_len;
                     if chars[start..start + pattern_len] == pattern_chars[..] {
-                        found_indices.insert(pattern_idx);
-                        results.push(pattern.clone());
+                        on_match(pattern_idx, start, pattern_len);
                     }
                 }
             }
@@ -533,47 +540,89 @@ impl WuManber {
         self.search_all(text).iter().map(|arc| (**arc).clone()).collect()
     }
 
-    /// Replace all matches with replacement character
+    /// Replace all matches with `replacement`, one char per matched character.
+    /// Overlapping patterns resolve leftmost-longest (e.g. with both "赌博" and
+    /// "赌博机" in the dictionary, "赌博机" wins and becomes "***").
     pub fn replace_all(&self, text: &str, replacement: char) -> String {
-        let mut result = text.to_string();
-
-        for pattern in &self.original_patterns {
-            let replacement_str = replacement.to_string().repeat(pattern.chars().count());
-            result = result.replace(pattern, &replacement_str);
-        }
-
-        result
+        let repl = replacement.to_string();
+        self.rebuild_matches(text, |start, end| {
+            let char_count = text[start..end].chars().count();
+            repl.repeat(char_count)
+        })
     }
 
-    /// Remove all matches from text
+    /// Remove all matches from text (leftmost-longest on overlap).
     pub fn remove_all(&self, text: &str) -> String {
-        let mut result = text.to_string();
-
-        for pattern in &self.original_patterns {
-            result = result.replace(pattern, "");
-        }
-
-        result
+        self.rebuild_matches(text, |_, _| String::new())
     }
 
-    /// Find all match positions with byte offsets
-    pub fn find_matches(&self, text: &str) -> Vec<Match> {
-        let mut matches = Vec::new();
+    /// Single-pass rebuild: locate every match via the table-driven
+    /// `find_matches`, order them leftmost-longest, then walk the text once,
+    /// copying non-match spans verbatim and substituting match spans. Spans
+    /// overlapped by an earlier (longer-leftmost) match are skipped.
+    fn rebuild_matches(&self, text: &str, make_replacement: impl Fn(usize, usize) -> String) -> String {
+        let mut matches = self.find_matches(text);
+        // start asc; for equal start, longer span first (so it wins on overlap)
+        matches.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
 
+        let mut out = String::with_capacity(text.len());
+        let mut cursor = 0usize;
+        for m in matches {
+            if m.start < cursor {
+                continue; // covered by a previously kept span
+            }
+            out.push_str(&text[cursor..m.start]);
+            out.push_str(&make_replacement(m.start, m.end));
+            cursor = m.end;
+        }
+        out.push_str(&text[cursor..]);
+        out
+    }
+
+    /// Find all match positions with byte offsets.
+    ///
+    /// Strict mode uses the shift/hash tables via `scan_core` (shared with
+    /// `search_all`); char indices are translated to byte offsets with an O(n)
+    /// `char_indices` lookup so `Match` keeps its byte-offset contract. Non-strict
+    /// space handling falls back to a byte-level brute-force scan
+    /// (`Filter`/`MultiPatternEngine` always use Strict).
+    pub fn find_matches(&self, text: &str) -> Vec<Match> {
+        if self.space_handling != SpaceHandling::Strict || self.patterns.is_empty() || text.is_empty() {
+            return self.find_matches_bruteforce(text);
+        }
+
+        let chars: Vec<char> = text.chars().collect();
+        // char index -> byte offset (O(n) once). A trailing sentinel = text.len()
+        // lets a match ending at the last char resolve to the end of the text.
+        let mut char_to_byte: Vec<usize> = text.char_indices().map(|(b, _)| b).collect();
+        char_to_byte.push(text.len());
+
+        let mut matches = Vec::new();
+        let mut seen = HashSet::new();
+        self.scan_core(&chars, |_pattern_idx, char_start, char_len| {
+            let char_end = char_start + char_len;
+            // scan_core's overlap re-check can emit the same (pattern, position)
+            // twice; dedup by char span so each occurrence is reported once.
+            if seen.insert((char_start, char_end)) {
+                matches.push(Match { start: char_to_byte[char_start], end: char_to_byte[char_end] });
+            }
+        });
+        matches.sort_by_key(|m| m.start);
+        matches
+    }
+
+    /// Byte-level brute-force fallback used for non-strict space handling.
+    fn find_matches_bruteforce(&self, text: &str) -> Vec<Match> {
+        let mut matches = Vec::new();
         for pattern in &self.original_patterns {
             let mut start = 0;
             while let Some(pos) = text[start..].find(pattern) {
                 let absolute_start = start + pos;
                 let absolute_end = absolute_start + pattern.len();
                 matches.push(Match { start: absolute_start, end: absolute_end });
-                // Advance by one *character* (not one byte) so we stay on a UTF-8
-                // boundary for the next `text[start..]` slice while still surfacing
-                // overlapping occurrences. Advancing by a single byte panicked on
-                // multi-byte text ("start byte index is not a char boundary").
                 start = absolute_start + text[absolute_start..].chars().next().map_or(1, char::len_utf8);
             }
         }
-
         matches.sort_by_key(|m| m.start);
         matches
     }
@@ -820,5 +869,58 @@ mod tests {
         let matches = wm.find_matches(text);
         assert_eq!(matches.len(), 2);
         assert!(matches.iter().all(|m| &text[m.start..m.end] == "赌博"));
+    }
+
+    #[test]
+    fn test_find_matches_overlapping_patterns() {
+        // Overlapping patterns: "赌博" ⊂ "赌博机" — both match at start=0, but
+        // each occurrence must be reported exactly once (scan_core's overlap
+        // re-check must not double-count the shorter pattern).
+        let wm = WuManber::new_chinese(vec!["赌博".to_string(), "赌博机".to_string()]);
+        let text = "赌博机";
+        let matches = wm.find_matches(text);
+        assert_eq!(matches.len(), 2, "got {matches:?}");
+        assert!(matches.iter().any(|m| &text[m.start..m.end] == "赌博"));
+        assert!(matches.iter().any(|m| &text[m.start..m.end] == "赌博机"));
+        // No duplicate spans.
+        let mut spans: Vec<_> = matches.iter().map(|m| (m.start, m.end)).collect();
+        spans.sort();
+        let before = spans.len();
+        spans.dedup();
+        assert_eq!(spans.len(), before);
+    }
+
+    #[test]
+    fn test_find_matches_pattern_at_text_end() {
+        // Pattern ending exactly at the text boundary exercises the
+        // char_to_byte sentinel (char_end == chars.len() -> text.len()).
+        let wm = WuManber::new_chinese(vec!["赌博".to_string()]);
+        let text = "前缀赌博";
+        let matches = wm.find_matches(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(&text[matches[0].start..matches[0].end], "赌博");
+        assert_eq!(matches[0].end, text.len());
+    }
+
+    #[test]
+    fn test_replace_all_overlapping_leftmost_longest() {
+        // 赌 ⊂ 赌博 ⊂ 赌博机: leftmost-longest replaces the whole "赌博机" (3 chars).
+        let wm = WuManber::new_chinese(vec!["赌".to_string(), "赌博".to_string(), "赌博机".to_string()]);
+        assert_eq!(wm.replace_all("赌博机", '*'), "***");
+        assert_eq!(wm.remove_all("赌博机"), "");
+    }
+
+    #[test]
+    fn test_replace_all_multiple_distinct() {
+        let wm = WuManber::new_chinese(vec!["赌博".to_string(), "色情".to_string()]);
+        // Each match replaced by one char per matched character.
+        assert_eq!(wm.replace_all("赌博和色情", '*'), "**和**");
+    }
+
+    #[test]
+    fn test_replace_all_no_match() {
+        let wm = WuManber::new_chinese(vec!["赌博".to_string()]);
+        assert_eq!(wm.replace_all("正常内容", '*'), "正常内容");
+        assert_eq!(wm.remove_all("正常内容"), "正常内容");
     }
 }

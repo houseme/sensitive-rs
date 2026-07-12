@@ -1,6 +1,7 @@
 use crate::engine::MatchAlgorithm;
 use crate::{engine::MultiPatternEngine, variant::VariantDetector};
 use lru::LruCache;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use regex::Regex;
 use std::num::NonZero;
@@ -174,22 +175,32 @@ impl Filter {
     /// Replace sensitive words with replacement character
     pub fn replace(&self, text: &str, replacement: char) -> String {
         let clean_text = self.remove_noise(text);
+        let repl = replacement.to_string();
 
-        // Get all sensitive words (including variants) that need to be processed
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-        let variants = self.variant_detector.detect(&clean_text, &patterns);
-
-        let mut result = clean_text;
-
-        // Replace sensitive words detected by the engine
-        for pattern in self.engine.get_patterns() {
-            let repl_str = replacement.to_string().repeat(pattern.chars().count());
-            result = result.replace(pattern, &repl_str);
+        // Exact matches: single-pass rebuild from engine match positions
+        // (leftmost-longest, so overlapping dict words resolve cleanly), one
+        // replacement char per matched character.
+        let mut positions = self.engine.find_matches_with_positions(&clean_text);
+        positions.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
+        let mut result = String::with_capacity(clean_text.len());
+        let mut cursor = 0usize;
+        for m in &positions {
+            if m.start < cursor {
+                continue; // covered by a previously kept (longer-leftmost) span
+            }
+            result.push_str(&clean_text[cursor..m.start]);
+            result.push_str(&repl.repeat(clean_text[m.start..m.end].chars().count()));
+            cursor = m.end;
         }
+        result.push_str(&clean_text[cursor..]);
 
-        // Replace the sensitive words detected by the variant
+        // Variant branch: `detect` returns original word names, not the variant
+        // text actually present, so these replaces are no-ops when only variants
+        // occur. Kept unchanged in this perf pass; revisit separately.
+        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+        let variants = self.variant_detector.detect(&result, &patterns);
         for variant in variants {
-            let repl_str = replacement.to_string().repeat(variant.chars().count());
+            let repl_str = repl.repeat(variant.chars().count());
             result = result.replace(variant, &repl_str);
         }
 
@@ -240,13 +251,14 @@ impl Filter {
             return cached_result;
         }
 
+        #[cfg(feature = "parallel")]
         let results = if clean_text.len() > 1000 {
-            // Long text is processed in parallel
-            self.find_all_parallel(&clean_text)
+            self.find_all_parallel(&clean_text) // long text -> parallel
         } else {
-            // General processing of short text
-            self.find_all_sequential(&clean_text)
+            self.find_all_sequential(&clean_text) // short text -> sequential
         };
+        #[cfg(not(feature = "parallel"))]
+        let results = self.find_all_sequential(&clean_text);
 
         // 3. Cache results
         self.cache_result(&clean_text, &results);
@@ -255,6 +267,7 @@ impl Filter {
     }
 
     /// Parallel Processing Version - For Long Text
+    #[cfg(feature = "parallel")]
     fn find_all_parallel(&self, text: &str) -> Vec<String> {
         let chunk_size = std::cmp::max(text.len() / rayon::current_num_threads(), 100);
         let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
@@ -317,7 +330,14 @@ impl Filter {
 
     /// Bulk search for optimized versions
     pub fn find_all_batch(&self, texts: &[&str]) -> Vec<Vec<String>> {
-        texts.par_iter().map(|text| self.find_all(text)).collect()
+        #[cfg(feature = "parallel")]
+        {
+            texts.par_iter().map(|text| self.find_all(text)).collect()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            texts.iter().map(|text| self.find_all(text)).collect()
+        }
     }
 
     /// Hierarchical Matching - Preferential Matching by Sensitive Word Length
@@ -412,6 +432,15 @@ mod tests {
 
         // filter should be completely removed
         assert_eq!(filter.filter(text), "这里有和内容");
+    }
+
+    #[test]
+    fn test_replace_single_pass_rebuild() {
+        // R3: exact matches rebuilt in a single pass, one '*' per matched char,
+        // regardless of how many patterns hit.
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "色情"]);
+        assert_eq!(filter.replace("前缀赌博中间色情后缀", '*'), "前缀**中间**后缀");
     }
 
     #[test]

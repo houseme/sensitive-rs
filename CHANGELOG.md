@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-13
+
+### Added
+
+- `criterion` benchmarks (`benches/matching.rs`): `find_all` across vocabulary sizes, algorithm comparison (AhoCorasick/WuManber/Regex), `replace`, cache-hit, and batch.
+- `examples/` directory: `basic`, `variant`, `batch`, `custom_dict`.
+- `clippy.toml` with MSRV and complexity/line-count thresholds.
+
+### Changed
+
+- `rayon` is now optional behind a new `parallel` feature (enabled in `default` for backward compatibility). With `--no-default-features`, `Filter` falls back to sequential matching - friendlier for WASM/embedded builds.
+- `benches/` and `examples/` are now included in the published package so `[[bench]]` resolves on `cargo publish`.
+- Performance: `WuManber::find_matches` now drives off the shift/hash tables (sharing one scan core with `search_all`) instead of O(n*m) brute-force per pattern; `WuManber::replace_all`/`remove_all` and `Filter::replace` rebuild the string in a single pass instead of per-pattern `str::replace`. Overlapping dictionary words (e.g. `"赌博"` inside `"赌博机"`) now resolve leftmost-longest on replace/filter - previously undefined.
+
 ## [1.0.0] - 2026-07-12
 
 ### Added

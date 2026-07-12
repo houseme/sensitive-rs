@@ -19,11 +19,12 @@
 - 多算法引擎：Aho-Corasick、Wu-Manber、Regex
 - 正则噪音字符清理
 - 拼音与形似字变体检测
-- 基于 `rayon` 的并行搜索
+- 基于可选 `rayon` 的并行搜索（`parallel` feature，默认启用）
 - 热点查询 LRU 缓存
 - 批量处理：`find_all_batch`
 - 分层匹配：`find_all_layered`
 - 流式处理：`find_all_streaming`
+- Criterion 基准测试和可运行 examples，便于发布验证
 
 ## 安装
 
@@ -31,7 +32,14 @@
 
 ```toml
 [dependencies]
-sensitive-rs = "0.8.0"
+sensitive-rs = "1.1.0"
+```
+
+如果目标环境不适合引入 `rayon`（例如 WASM 或嵌入式场景），可以关闭默认功能：
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.1.0", default-features = false }
 ```
 
 ## 快速开始
@@ -58,7 +66,7 @@ fn main() {
 
 ```rust
 let texts = vec!["文本 1", "文本 2"];
-let results = filter.find_all_batch( & texts);
+let results = filter.find_all_batch(&texts);
 ```
 
 分层匹配：
@@ -73,8 +81,8 @@ let layered = filter.find_all_layered("一些长文本");
 use std::fs::File;
 use std::io::BufReader;
 
-let reader = BufReader::new(File::open("large.txt") ? );
-let stream_results = filter.find_all_streaming(reader) ?;
+let reader = BufReader::new(File::open("large.txt")?);
+let stream_results = filter.find_all_streaming(reader)?;
 ```
 
 ## CLI 使用
@@ -83,7 +91,7 @@ let stream_results = filter.find_all_streaming(reader) ?;
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "0.8.0", features = ["cli"] }
+sensitive-rs = { version = "1.1.0", features = ["cli"] }
 ```
 
 或直接安装：
@@ -125,6 +133,16 @@ echo "文本" | sensitive check
 - `--noise-pattern <regex>` — 自定义噪声去除正则
 - `--json` — JSON 输出格式
 - `--color` — 强制彩色输出
+
+## 示例与基准测试
+
+```sh
+cargo run --example basic
+cargo run --example batch
+cargo run --example custom_dict
+cargo run --example variant
+cargo bench
+```
 
 ## 文档
 详细文档请参阅 [Documentation](https://docs.rs/sensitive-rs).

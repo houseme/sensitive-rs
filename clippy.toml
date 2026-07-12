@@ -1,0 +1,13 @@
+# clippy configuration for sensitive-rs.
+# These thresholds feed nursery/restriction lints that are `allow` by default,
+# so this file does not raise new warnings on its own; enable the lints
+# explicitly (e.g. -W clippy::cognitive_complexity) to use them.
+
+# Minimum Supported Rust Version — edition 2024 requires Rust 1.85+.
+msrv = "1.85.0"
+
+# Threshold for the `cognitive_complexity` lint.
+cognitive-complexity-threshold = 30
+
+# Threshold for the `too_many_lines` lint.
+too-many-lines-threshold = 150
