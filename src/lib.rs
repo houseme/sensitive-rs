@@ -32,6 +32,7 @@ mod variant;
 pub use engine::MatchAlgorithm;
 pub use engine::MultiPatternEngine;
 pub use filter::Filter;
+pub use filter::Match;
 pub use variant::VariantDetector;
 
 /// Re-export for backward compatibility

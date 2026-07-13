@@ -1,3 +1,16 @@
+//! Multi-pattern matching engine.
+//!
+//! [`MultiPatternEngine`] automatically selects an algorithm based on vocabulary size:
+//!
+//! | Patterns | Algorithm | Why |
+//! |----------|-----------|-----|
+//! | 0–100    | [`MatchAlgorithm::WuManber`]   | Small tables, quick scan |
+//! | 101–10k  | [`MatchAlgorithm::AhoCorasick`]| O(n) automaton scan regardless of count |
+//! | 10k+     | [`MatchAlgorithm::Regex`]      | Compilation overhead amortized over many patterns |
+//!
+//! Use [`MultiPatternEngine::recommend_algorithm`] to preview the choice, or force one with
+//! [`MultiPatternEngine::rebuild_with_algorithm`].
+
 pub mod wumanber;
 use crate::WuManber;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
@@ -5,6 +18,18 @@ use regex::Regex;
 use std::sync::Arc;
 
 /// Supported matching algorithm types
+///
+/// Implements [`Display`](std::fmt::Display) for human-readable names.
+///
+/// # Examples
+///
+/// ```
+/// use sensitive_rs::MatchAlgorithm;
+///
+/// assert_eq!(MatchAlgorithm::AhoCorasick.to_string(), "Aho-Corasick");
+/// assert_eq!(MatchAlgorithm::WuManber.to_string(), "Wu-Manber");
+/// assert_eq!(MatchAlgorithm::Regex.to_string(), "Regex");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatchAlgorithm {
     /// Best for medium-sized vocabulary (101-10,000 patterns)
@@ -16,6 +41,16 @@ pub enum MatchAlgorithm {
     /// Best for very large vocabulary (10,000+ patterns)
     /// Pattern compilation overhead amortized over many patterns
     Regex,
+}
+
+impl std::fmt::Display for MatchAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AhoCorasick => write!(f, "Aho-Corasick"),
+            Self::WuManber => write!(f, "Wu-Manber"),
+            Self::Regex => write!(f, "Regex"),
+        }
+    }
 }
 
 /// Multi-pattern matching engine
@@ -47,6 +82,18 @@ impl Default for MultiPatternEngine {
 
 impl MultiPatternEngine {
     /// Create a new engine and automatically select the algorithm based on the lexicon size
+    ///
+    /// Pass `None` for `algorithm` to auto-select; pass [`Some`] to force a specific algorithm.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::MultiPatternEngine;
+    ///
+    /// let patterns = vec!["赌博".to_string(), "色情".to_string()];
+    /// let engine = MultiPatternEngine::new(None, &patterns);
+    /// assert_eq!(engine.find_first("含有赌博"), Some("赌博".to_string()));
+    /// ```
     pub fn new(algorithm: Option<MatchAlgorithm>, patterns: &[String]) -> Self {
         let algorithm = algorithm.unwrap_or_else(|| Self::recommend_algorithm(patterns.len()));
         let mut engine = Self { algorithm, ..Default::default() };
@@ -146,6 +193,17 @@ impl MultiPatternEngine {
     }
 
     /// Find the first match
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::MultiPatternEngine;
+    ///
+    /// let patterns = vec!["赌博".to_string()];
+    /// let engine = MultiPatternEngine::new(None, &patterns);
+    /// assert_eq!(engine.find_first("含有赌博内容"), Some("赌博".to_string()));
+    /// assert_eq!(engine.find_first("正常文本"), None);
+    /// ```
     pub fn find_first(&self, text: &str) -> Option<String> {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
@@ -192,6 +250,17 @@ impl MultiPatternEngine {
     }
 
     /// Find all matches
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::MultiPatternEngine;
+    ///
+    /// let patterns = vec!["赌博".to_string(), "色情".to_string()];
+    /// let engine = MultiPatternEngine::new(None, &patterns);
+    /// let matches = engine.find_all("含有赌博和色情");
+    /// assert_eq!(matches.len(), 2);
+    /// ```
     pub fn find_all(&self, text: &str) -> Vec<String> {
         match self.algorithm {
             MatchAlgorithm::AhoCorasick => {
@@ -413,6 +482,13 @@ mod tests {
         assert_eq!(MultiPatternEngine::recommend_algorithm(101), MatchAlgorithm::AhoCorasick);
         assert_eq!(MultiPatternEngine::recommend_algorithm(10_000), MatchAlgorithm::AhoCorasick);
         assert_eq!(MultiPatternEngine::recommend_algorithm(10_001), MatchAlgorithm::Regex);
+    }
+
+    #[test]
+    fn test_match_algorithm_display() {
+        assert_eq!(MatchAlgorithm::AhoCorasick.to_string(), "Aho-Corasick");
+        assert_eq!(MatchAlgorithm::WuManber.to_string(), "Wu-Manber");
+        assert_eq!(MatchAlgorithm::Regex.to_string(), "Regex");
     }
 
     #[test]

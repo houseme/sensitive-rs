@@ -53,7 +53,7 @@ fn bench_cache_hit(c: &mut Criterion) {
     let text = "含有赌博和色情内容";
 
     // Warm up the cache so the measured call is a hit.
-    filter.find_all(text);
+    let _ = filter.find_all(text);
 
     c.bench_function("cache_hit", |b| {
         b.iter(|| filter.find_all(std::hint::black_box(text)));

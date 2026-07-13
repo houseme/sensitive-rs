@@ -1,0 +1,65 @@
+# sensitive-rs shape-confusable character map.
+#
+# Each non-comment line is one equivalence class: `key:v1,v2,...`
+# Every character in the line is treated as shape-confusable with every other
+# character in the same line (bidirectional). Lines starting with `#` are
+# comments and blank lines are ignored. Only the first character of the key and
+# of each comma-separated value is used.
+
+# --- Sensitive-word variants (preserved from the original hard-coded map) ---
+赌:睹,堵,渧
+博:搏,傅,膊
+色:涩
+情:请,清,晴,睛
+毒:毐,每
+黄:横,簧
+淫:婬,滛
+妓:伎
+枪:抢
+炸:诈
+杀:刹
+贪:贫
+
+# --- Commonly confused radicals / structurally similar characters ---
+己:已,巳
+未:末
+太:大,犬
+天:夫,夭
+日:曰,目
+士:土
+王:玉
+干:千,于
+人:入,八
+刀:力,刃
+几:九,凡
+贝:见,页
+乌:鸟
+免:兔
+戊:戌,戍,戎
+孑:子,孓
+厂:广
+历:厉
+
+# --- Look-alike pairs (component / structural confusion) ---
+折:拆
+拔:拨
+刺:剌
+享:亨
+崇:祟
+茶:荼
+待:侍
+钓:钧
+卯:卵
+侯:候
+竟:竞
+悼:掉
+撤:撒
+微:徽
+赢:嬴
+盲:肓
+木:本,术
+申:甲,由
+爪:瓜
+弋:戈
+廿:甘
+矢:失

@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-13
+
+### Added
+
+- Expanded the shape-confusable character map from 5 to 50+ groups, now loaded from `dict/shape_map.txt`. Each group is a full equivalence class (bidirectional), so evasions are caught in both directions (e.g. a word built from `睹` matches text using `赌`).
+- `Filter::find_first_match` and a `Match` type (`{ word, is_variant }`) for richer first-match results. `Filter::find_in` keeps its existing `(bool, String)` signature and now delegates to `find_first_match`.
+- `Display` implementation for `MatchAlgorithm` (`Aho-Corasick` / `Wu-Manber` / `Regex`).
+- `#[must_use]` on value-returning query methods (`find_in`, `find_all`, `find_first_match`, `replace`, `filter`, `validate`, `find_all_batch`, `find_all_layered`, `current_algorithm`, `remove_noise`, `get_noise_pattern`).
+- Rustdoc `# Examples` (runnable doctests) across the public API, plus module-level docs for the `filter`, `engine`, and `variant` modules.
+- `Benchmarks` CI workflow (`.github/workflows/bench.yml`) that runs `cargo bench --bench matching` on pull requests and uploads the results.
+
 ### Changed
 
 - Dictionary entries that contain whitespace are now loaded with both the original form and a whitespace-folded form, so entries like `A 级` also match `A级`.
+- `Filter::validate` is now explicitly documented as an alias of `find_in`.
+- README (`README.md` / `README_CN.md`) refreshed with the current API, an algorithm-selection table, and version 1.2.0.
 
 ## [1.1.0] - 2026-07-13
 

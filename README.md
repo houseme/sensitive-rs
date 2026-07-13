@@ -13,12 +13,13 @@ A high-performance Rust crate for multi-pattern string matching, validation, fil
 ## Features
 
 - Find all sensitive words: `find_all`
+- First match with metadata (`Match`): `find_first_match`
 - Validate text contains sensitive words: `validate`
 - Remove sensitive words: `filter`
 - Replace sensitive words with a character: `replace`
 - Multi-algorithm engine: Aho-Corasick, Wu-Manber, Regex
 - Noise removal via configurable regex
-- Variant detection (拼音、形似字)
+- Variant detection (拼音、形似字) — pinyin plus a 50+ group shape-confusable map
 - Parallel search with optional `rayon` support (`parallel` feature, enabled by default)
 - LRU cache for hot queries
 - Batch processing: `find_all_batch`
@@ -26,20 +27,32 @@ A high-performance Rust crate for multi-pattern string matching, validation, fil
 - Streaming processing: `find_all_streaming`
 - Criterion benchmarks and runnable examples for release validation
 
+## Algorithm selection
+
+The engine auto-selects based on vocabulary size:
+
+| Patterns   | Algorithm     | Rationale                                  |
+|------------|---------------|--------------------------------------------|
+| 0–100      | Wu-Manber     | Small tables, quick scan                   |
+| 101–10,000 | Aho-Corasick  | O(n) automaton scan regardless of count    |
+| 10,000+    | Regex         | Compilation overhead amortized             |
+
+Override with `Filter::with_algorithm(...)` or `--algorithm` on the CLI.
+
 ## Installation
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "1.1.0"
+sensitive-rs = "1.2.0"
 ```
 
 For environments that should avoid `rayon` (for example WASM or embedded targets), disable default features:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.1.0", default-features = false }
+sensitive-rs = { version = "1.2.0", default-features = false }
 ```
 
 ## Quick Start
@@ -91,7 +104,7 @@ Install with the `cli` feature:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.1.0", features = ["cli"] }
+sensitive-rs = { version = "1.2.0", features = ["cli"] }
 ```
 
 Or install directly:

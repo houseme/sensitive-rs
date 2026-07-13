@@ -1,3 +1,13 @@
+//! Variant (evasion) detection.
+//!
+//! [`VariantDetector`] catches sensitive words that have been obfuscated. Two channels run
+//! in parallel and the results are merged and de-duplicated:
+//!
+//! - **Pinyin**: the text and each dictionary word are converted to tone-less pinyin; a word
+//!   matches if its pinyin appears as a substring (e.g. `dubo` → `赌博`).
+//! - **Shape** (形似字): characters are compared against a shape-confusable map loaded from
+//!   `dict/shape_map.txt`, where each entry is a full equivalence class (e.g. `睹` ↔ `赌`).
+
 use pinyin::Pinyin;
 use std::collections::HashMap;
 
@@ -26,6 +36,19 @@ impl Default for VariantDetector {
 
 impl VariantDetector {
     /// Create a new detector
+    ///
+    /// The detector starts empty; register words with [`VariantDetector::add_word`] before
+    /// calling [`VariantDetector::detect`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::VariantDetector;
+    ///
+    /// let mut vd = VariantDetector::new();
+    /// vd.add_word("赌博");
+    /// assert_eq!(vd.detect("dubo", &["赌博"]), vec!["赌博"]); // pinyin variant
+    /// ```
     pub fn new() -> Self {
         VariantDetector {
             pinyin_map: HashMap::new(),
@@ -57,6 +80,20 @@ impl VariantDetector {
     }
 
     /// Detect variants in text
+    ///
+    /// Returns the subset of `original_words` whose pinyin or shape variant appears in `text`.
+    /// The returned slices borrow from `original_words`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::VariantDetector;
+    ///
+    /// let mut vd = VariantDetector::new();
+    /// vd.add_word("赌博");
+    /// // Shape variant: 睹 is shape-confusable with 赌.
+    /// assert_eq!(vd.detect("睹博", &["赌博"]), vec!["赌博"]);
+    /// ```
     pub fn detect<'a>(&'a self, text: &str, original_words: &[&'a str]) -> Vec<&'a str> {
         let mut variants = Vec::new();
 
@@ -136,14 +173,41 @@ impl VariantDetector {
     }
 
     /// Constructing a shape-size-word mapping table
+    ///
+    /// Loaded from the embedded `dict/shape_map.txt`. Each non-comment line is one
+    /// shape-confusable equivalence class (`key:v1,v2,...`); every character in the
+    /// line is treated as confusable with every other (bidirectional), so evasions
+    /// are caught in both directions. Overlapping lines union naturally.
     fn build_shape_map() -> HashMap<char, Vec<char>> {
-        let mut map = HashMap::new();
-        // Example: Add some common characters
-        map.insert('赌', vec!['渧', '睹', '堵']);
-        map.insert('博', vec!['搏', '傅', '膊']);
-        map.insert('有', vec!['友', '右']);
-        map.insert('色', vec!['涩']);
-        map.insert('情', vec!['请', '清']);
+        let mut map: HashMap<char, Vec<char>> = HashMap::new();
+
+        for line in include_str!("../../dict/shape_map.txt").lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            // Format: `key:v1,v2,...` — only the first char of key/value is used.
+            let Some((key_part, vals_part)) = line.split_once(':') else { continue };
+            let Some(key) = key_part.trim().chars().next() else { continue };
+            let group: Vec<char> =
+                std::iter::once(key).chain(vals_part.split(',').filter_map(|s| s.trim().chars().next())).collect();
+            if group.len() < 2 {
+                continue;
+            }
+
+            // Full equivalence class: every char maps to all the others.
+            for &c in &group {
+                let others: Vec<char> = group.iter().filter(|&&x| x != c).copied().collect();
+                map.entry(c).or_default().extend(others);
+            }
+        }
+
+        // Lines may overlap on shared chars; dedup each value list.
+        for vals in map.values_mut() {
+            vals.sort_unstable();
+            vals.dedup();
+        }
         map
     }
 }
@@ -183,6 +247,34 @@ mod tests {
         vd.add_word("赌博");
         let results = vd.detect("赌", &["赌博"]);
         assert!(results.is_empty()); // different length
+    }
+
+    #[test]
+    fn test_shape_map_loaded_from_file() {
+        // The shape map is loaded from dict/shape_map.txt and must cover 50+ groups.
+        let vd = VariantDetector::new();
+        assert!(vd.shape_map.len() >= 50, "shape_map has {} entries, expected >= 50", vd.shape_map.len());
+        // The original hard-coded entries are preserved.
+        assert!(vd.shape_map.get(&'赌').is_some_and(|v| v.contains(&'睹')));
+        assert!(vd.shape_map.get(&'博').is_some_and(|v| v.contains(&'膊')));
+    }
+
+    #[test]
+    fn test_shape_variant_bidirectional() {
+        // Full equivalence-class symmetry: a word built from a "variant" char is
+        // detected when the text uses the canonical char, and vice versa.
+        let mut vd = VariantDetector::new();
+        vd.add_word("睹博"); // text form of 赌博
+        assert_eq!(vd.detect("赌博", &["睹博"]), vec!["睹博"]);
+    }
+
+    #[test]
+    fn test_shape_group_full_symmetry() {
+        // 人:入,八 is one equivalence class — every char matches every other.
+        let mut vd = VariantDetector::new();
+        vd.add_word("人");
+        assert_eq!(vd.detect("入", &["人"]), vec!["人"]);
+        assert_eq!(vd.detect("八", &["人"]), vec!["人"]);
     }
 
     #[test]

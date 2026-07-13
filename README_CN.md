@@ -13,12 +13,13 @@
 ## 功能
 
 - 查找所有敏感词：`find_all`
+- 获取首个匹配及元信息（`Match`）：`find_first_match`
 - 验证文本是否包含敏感词：`validate`
 - 过滤敏感词：`filter`
 - 替换敏感词：`replace`
 - 多算法引擎：Aho-Corasick、Wu-Manber、Regex
 - 正则噪音字符清理
-- 拼音与形似字变体检测
+- 拼音与形似字变体检测（含 50+ 组形近字映射）
 - 基于可选 `rayon` 的并行搜索（`parallel` feature，默认启用）
 - 热点查询 LRU 缓存
 - 批量处理：`find_all_batch`
@@ -26,20 +27,32 @@
 - 流式处理：`find_all_streaming`
 - Criterion 基准测试和可运行 examples，便于发布验证
 
+## 算法选择
+
+引擎会根据词库规模自动选择算法：
+
+| 词库规模   | 算法          | 说明                                |
+|------------|---------------|-------------------------------------|
+| 0–100      | Wu-Manber     | 表小，扫描快                        |
+| 101–10,000 | Aho-Corasick  | 自动机 O(n) 扫描，与词数无关        |
+| 10,000+    | Regex         | 编译开销在大量模式下均摊            |
+
+可通过 `Filter::with_algorithm(...)` 或 CLI 的 `--algorithm` 强制指定。
+
 ## 安装
 
 在 `Cargo.toml` 中添加：
 
 ```toml
 [dependencies]
-sensitive-rs = "1.1.0"
+sensitive-rs = "1.2.0"
 ```
 
 如果目标环境不适合引入 `rayon`（例如 WASM 或嵌入式场景），可以关闭默认功能：
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.1.0", default-features = false }
+sensitive-rs = { version = "1.2.0", default-features = false }
 ```
 
 ## 快速开始
@@ -91,7 +104,7 @@ let stream_results = filter.find_all_streaming(reader)?;
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.1.0", features = ["cli"] }
+sensitive-rs = { version = "1.2.0", features = ["cli"] }
 ```
 
 或直接安装：

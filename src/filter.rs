@@ -1,3 +1,12 @@
+//! Main filtering API.
+//!
+//! [`Filter`] is the primary entry point: load a dictionary with [`Filter::add_word`] /
+//! [`Filter::add_words`] / [`Filter::load_word_dict`], then query with [`Filter::find_all`]
+//! (all matches), [`Filter::find_in`] or [`Filter::find_first_match`] (first match),
+//! [`Filter::replace`] (mask), or [`Filter::filter`] (remove). Input text is first cleaned of
+//! noise via a configurable regex, then matched exactly against the dictionary, and finally
+//! checked for pinyin/shape variants.
+
 use crate::engine::MatchAlgorithm;
 use crate::{engine::MultiPatternEngine, variant::VariantDetector};
 use lru::LruCache;
@@ -23,6 +32,18 @@ pub struct Filter {
     http_client: reqwest::blocking::Client, // Network request client
 }
 
+/// A sensitive-word match found by [`Filter::find_first_match`].
+///
+/// `word` is the matched word in its dictionary form; `is_variant` is `true` when
+/// the match came from pinyin/shape variant detection rather than an exact hit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Match {
+    /// The matched sensitive word, in dictionary form.
+    pub word: String,
+    /// `true` if matched via a pinyin/shape variant rather than an exact hit.
+    pub is_variant: bool,
+}
+
 impl std::fmt::Debug for Filter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Filter")
@@ -35,7 +56,17 @@ impl std::fmt::Debug for Filter {
 }
 
 impl Filter {
-    /// Create a new filter with default settings
+    /// Create a new filter with default settings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    /// assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
+    /// ```
     pub fn new() -> Self {
         Self {
             engine: MultiPatternEngine::new(None, &[]),
@@ -98,6 +129,22 @@ impl Filter {
     }
 
     /// Update noise pattern
+    ///
+    /// Sets the regex used to strip noise characters before matching. Characters
+    /// **not** matched by the regex are kept. Returns an error if `pattern` is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    /// // Strip everything except CJK and ASCII word characters.
+    /// filter.update_noise_pattern(r"[^\w一-鿿]")?;
+    /// assert_eq!(filter.remove_noise("赌@#博"), "赌博");
+    /// # Ok::<(), regex::Error>(())
+    /// ```
     pub fn update_noise_pattern(&mut self, pattern: &str) -> Result<(), regex::Error> {
         self.noise = Regex::new(pattern)?;
         Ok(())
@@ -115,6 +162,16 @@ impl Filter {
     }
 
     /// Add multiple words
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_words(&["赌博", "色情"]);
+    /// assert!(filter.find_all("含有赌博和色情").contains(&"赌博".to_string()));
+    /// ```
     pub fn add_words(&mut self, words: &[&str]) {
         let mut patterns = self.engine.get_patterns().to_vec();
         Self::extend_patterns_with_word_variants(&mut patterns, words);
@@ -129,6 +186,7 @@ impl Filter {
     }
 
     /// Get the currently used algorithm
+    #[must_use]
     pub fn current_algorithm(&self) -> MatchAlgorithm {
         self.engine.current_algorithm()
     }
@@ -158,6 +216,20 @@ impl Filter {
     }
 
     /// Load dictionary from reader
+    ///
+    /// Each line of the reader is one dictionary word.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    /// use std::io::Cursor;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.load(Cursor::new("赌博\n色情"))?;
+    /// assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn load<R: BufRead>(&mut self, reader: R) -> io::Result<()> {
         let words: Vec<_> = reader.lines().collect::<Result<_, _>>()?;
         self.add_words(&words.iter().map(|s| s.as_str()).collect::<Vec<_>>());
@@ -177,26 +249,88 @@ impl Filter {
         self.load(reader)
     }
 
-    /// Find first sensitive word
-    pub fn find_in(&self, text: &str) -> (bool, String) {
+    /// Find the first sensitive word, returning a [`Match`] with details, or `None`.
+    ///
+    /// Exact matches are preferred; pinyin/shape variants are only consulted when no
+    /// exact hit is found. `is_variant` on the returned [`Match`] records which path hit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::{Filter, Match};
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    ///
+    /// // Exact hit:
+    /// assert_eq!(
+    ///     filter.find_first_match("含有赌博"),
+    ///     Some(Match { word: "赌博".to_string(), is_variant: false })
+    /// );
+    /// // Pinyin variant (no exact hit):
+    /// assert_eq!(
+    ///     filter.find_first_match("dubo"),
+    ///     Some(Match { word: "赌博".to_string(), is_variant: true })
+    /// );
+    /// // No match:
+    /// assert_eq!(filter.find_first_match("clean text"), None);
+    /// ```
+    #[must_use]
+    pub fn find_first_match(&self, text: &str) -> Option<Match> {
         let clean_text = self.remove_noise(text);
 
         // 1. Try exact match first
         if let Some(word) = self.engine.find_first(&clean_text) {
-            return (true, word);
+            return Some(Match { word, is_variant: false });
         }
 
         // 2. Try variant detection
         let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
 
         if let Some(word) = self.variant_detector.detect(&clean_text, &patterns).first() {
-            return (true, word.to_string());
+            return Some(Match { word: word.to_string(), is_variant: true });
         }
 
-        (false, String::new())
+        None
     }
 
-    /// Replace sensitive words with replacement character
+    /// Find first sensitive word.
+    ///
+    /// Returns `(found, word)`; `word` is empty when nothing matched. For richer detail
+    /// (including whether the hit was a variant), use [`Filter::find_first_match`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    /// assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
+    /// assert_eq!(filter.find_in("clean text"), (false, String::new()));
+    /// ```
+    #[must_use]
+    pub fn find_in(&self, text: &str) -> (bool, String) {
+        match self.find_first_match(text) {
+            Some(m) => (true, m.word),
+            None => (false, String::new()),
+        }
+    }
+
+    /// Replace sensitive words with replacement character.
+    ///
+    /// Each matched character is replaced by one `replacement` char.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    /// assert_eq!(filter.replace("含有赌博内容", '*'), "含有**内容");
+    /// ```
+    #[must_use]
     pub fn replace(&self, text: &str, replacement: char) -> String {
         let clean_text = self.remove_noise(text);
         let repl = replacement.to_string();
@@ -231,7 +365,18 @@ impl Filter {
         result
     }
 
-    /// Filter out sensitive words (remove them completely)
+    /// Filter out sensitive words (remove them completely).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    /// assert_eq!(filter.filter("含有赌博内容"), "含有内容");
+    /// ```
+    #[must_use]
     pub fn filter(&self, text: &str) -> String {
         let clean_text = self.remove_noise(text);
 
@@ -250,23 +395,55 @@ impl Filter {
     }
 
     /// Validate text
+    ///
+    /// This is an alias for [`Filter::find_in`]: it returns `(found, word)` for the
+    /// first sensitive word encountered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_word("赌博");
+    /// assert_eq!(filter.validate("含有赌博"), (true, "赌博".to_string()));
+    /// assert_eq!(filter.validate("clean text"), (false, String::new()));
+    /// ```
+    #[must_use]
     pub fn validate(&self, text: &str) -> (bool, String) {
         self.find_in(text)
     }
 
     /// Remove only specific noise characters, preserve spaces
+    #[must_use]
     pub fn remove_noise(&self, text: &str) -> String {
         self.noise.replace_all(text, "").to_string()
     }
 
     /// Get current noise pattern
+    #[must_use]
     pub fn get_noise_pattern(&self) -> &Regex {
         &self.noise
     }
 }
 
 impl Filter {
-    /// Optimized method of finding all sensitive words
+    /// Optimized method of finding all sensitive words.
+    ///
+    /// Returns the de-duplicated, sorted list of matched dictionary words (variants
+    /// included). Results are cached, so repeated calls on the same text are cheap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_words(&["赌博", "色情"]);
+    /// // Results are sorted: 色 (U+8272) sorts before 赌 (U+8D4C).
+    /// assert_eq!(filter.find_all("含有赌博和色情内容"), vec!["色情".to_string(), "赌博".to_string()]);
+    /// ```
+    #[must_use]
     pub fn find_all(&self, text: &str) -> Vec<String> {
         let clean_text = self.remove_noise(text);
 
@@ -353,6 +530,23 @@ impl Filter {
     }
 
     /// Bulk search for optimized versions
+    ///
+    /// Runs [`Filter::find_all`] over each text. With the `parallel` feature (default) the
+    /// texts are processed concurrently.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_words(&["赌博", "色情"]);
+    /// let results = filter.find_all_batch(&["含有赌博", "正常", "含有色情"]);
+    /// assert!(results[0].contains(&"赌博".to_string()));
+    /// assert!(results[1].is_empty());
+    /// assert!(results[2].contains(&"色情".to_string()));
+    /// ```
+    #[must_use]
     pub fn find_all_batch(&self, texts: &[&str]) -> Vec<Vec<String>> {
         #[cfg(feature = "parallel")]
         {
@@ -365,6 +559,22 @@ impl Filter {
     }
 
     /// Hierarchical Matching - Preferential Matching by Sensitive Word Length
+    ///
+    /// Matches the longest words first and consumes their span, so shorter overlapping
+    /// entries are dropped. Useful when the dictionary contains both short and long forms.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_words(&["赌", "赌博", "赌博机"]);
+    /// let results = filter.find_all_layered("这里有赌博机");
+    /// assert!(results.contains(&"赌博机".to_string()));
+    /// assert!(!results.contains(&"赌博".to_string()));
+    /// ```
+    #[must_use]
     pub fn find_all_layered(&self, text: &str) -> Vec<String> {
         let clean_text = self.remove_noise(text);
         let mut results = Vec::new();
@@ -391,6 +601,23 @@ impl Filter {
     }
 
     /// Streaming version - suitable for oversized text
+    ///
+    /// Reads line-by-line from any [`BufRead`] and returns the de-duplicated matches
+    /// across all lines. Handy for files too large to hold in memory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sensitive_rs::Filter;
+    /// use std::io::Cursor;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.add_words(&["赌博", "色情"]);
+    /// let input = "第一行含有赌博\n第二行含有色情\n第三行正常";
+    /// let results = filter.find_all_streaming(Cursor::new(input))?;
+    /// assert_eq!(results.len(), 2);
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn find_all_streaming<R: BufRead>(&self, reader: R) -> io::Result<Vec<String>> {
         let mut all_results = Vec::new();
 
@@ -473,6 +700,33 @@ mod tests {
         filter.add_word("测试");
 
         assert_eq!(filter.find_in("ceshi"), (true, "测试".to_string()));
+    }
+
+    #[test]
+    fn test_find_first_match_exact() {
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "色情"]);
+
+        assert_eq!(filter.find_first_match("含有赌博"), Some(Match { word: "赌博".to_string(), is_variant: false }));
+        assert_eq!(filter.find_first_match("正常文本"), None);
+    }
+
+    #[test]
+    fn test_find_first_match_variant() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // Pinyin variant path: word found, but is_variant = true.
+        assert_eq!(filter.find_first_match("含有 dubo"), Some(Match { word: "赌博".to_string(), is_variant: true }));
+    }
+
+    #[test]
+    fn test_find_first_match_prefers_exact_over_variant() {
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // Exact hit wins even though a pinyin variant would also match.
+        assert_eq!(filter.find_first_match("赌博 dubo"), Some(Match { word: "赌博".to_string(), is_variant: false }));
     }
 
     #[test]
@@ -718,7 +972,7 @@ mod tests {
         let mut filter = Filter::new();
         filter.add_word("赌博");
 
-        filter.find_all("含有赌博"); // populate cache
+        let _ = filter.find_all("含有赌博"); // populate cache
         filter.clear_cache();
 
         // After clear, the result is recomputed (still correct).
