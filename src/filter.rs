@@ -8,7 +8,7 @@
 //! checked for pinyin/shape variants.
 
 use crate::engine::MatchAlgorithm;
-use crate::{engine::MultiPatternEngine, variant::VariantDetector};
+use crate::{engine::MatchInfo, engine::MultiPatternEngine, variant::VariantDetector};
 use lru::LruCache;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -152,13 +152,7 @@ impl Filter {
 
     /// Add a sensitive word
     pub fn add_word(&mut self, word: &str) {
-        let mut patterns = self.engine.get_patterns().to_vec();
-        Self::extend_patterns_with_word_variants(&mut patterns, &[word]);
-        self.engine.rebuild(&patterns);
-        for variant in Self::word_match_variants(word) {
-            self.variant_detector.add_word(&variant);
-        }
-        self.clear_cache();
+        self.add_words(&[word]);
     }
 
     /// Add multiple words
@@ -193,11 +187,7 @@ impl Filter {
 
     /// Remove a word
     pub fn del_word(&mut self, word: &str) {
-        let word_set: HashSet<_> = Self::word_match_variants(word).into_iter().collect();
-        let patterns: Vec<_> = self.engine.get_patterns().iter().filter(|w| !word_set.contains(*w)).cloned().collect();
-
-        self.engine.rebuild(&patterns);
-        self.clear_cache();
+        self.del_words(&[word]);
     }
 
     /// Remove multiple words
@@ -319,7 +309,9 @@ impl Filter {
 
     /// Replace sensitive words with replacement character.
     ///
-    /// Each matched character is replaced by one `replacement` char.
+    /// Each matched character is replaced by one `replacement` char. Only exact
+    /// dictionary matches are masked; variant forms are not (use [`Filter::find_all`]
+    /// to detect them).
     ///
     /// # Examples
     ///
@@ -335,37 +327,24 @@ impl Filter {
         let clean_text = self.remove_noise(text);
         let repl = replacement.to_string();
 
-        // Exact matches: single-pass rebuild from engine match positions
-        // (leftmost-longest, so overlapping dict words resolve cleanly), one
-        // replacement char per matched character.
-        let mut positions = self.engine.find_matches_with_positions(&clean_text);
-        positions.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
+        // Single pass over leftmost-longest non-overlapping matches: one replacement
+        // char per matched character. Exact matches only — see the doc note above.
+        let matches = self.leftmost_longest_matches(&clean_text);
         let mut result = String::with_capacity(clean_text.len());
         let mut cursor = 0usize;
-        for m in &positions {
-            if m.start < cursor {
-                continue; // covered by a previously kept (longer-leftmost) span
-            }
+        for m in &matches {
             result.push_str(&clean_text[cursor..m.start]);
             result.push_str(&repl.repeat(clean_text[m.start..m.end].chars().count()));
             cursor = m.end;
         }
         result.push_str(&clean_text[cursor..]);
-
-        // Variant branch: `detect` returns original word names, not the variant
-        // text actually present, so these replaces are no-ops when only variants
-        // occur. Kept unchanged in this perf pass; revisit separately.
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-        let variants = self.variant_detector.detect(&result, &patterns);
-        for variant in variants {
-            let repl_str = repl.repeat(variant.chars().count());
-            result = result.replace(variant, &repl_str);
-        }
-
         result
     }
 
     /// Filter out sensitive words (remove them completely).
+    ///
+    /// Only exact dictionary matches are removed; variant forms are not (see
+    /// [`Filter::replace`]). Use [`Filter::find_all`] to detect variants.
     ///
     /// # Examples
     ///
@@ -379,19 +358,7 @@ impl Filter {
     #[must_use]
     pub fn filter(&self, text: &str) -> String {
         let clean_text = self.remove_noise(text);
-
-        // Use engine's optimized replace_all for pattern removal
-        let mut result = self.engine.replace_all(&clean_text, "");
-
-        // Remove sensitive words detected by variants
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-        let variants = self.variant_detector.detect(&result, &patterns);
-
-        for variant in variants {
-            result = result.replace(variant, "");
-        }
-
-        result
+        self.engine.replace_all(&clean_text, "")
     }
 
     /// Validate text
@@ -425,9 +392,26 @@ impl Filter {
     pub fn get_noise_pattern(&self) -> &Regex {
         &self.noise
     }
-}
 
-impl Filter {
+    /// Greedy leftmost-longest non-overlapping exact matches (byte spans + pattern).
+    ///
+    /// Sorts by start ascending then end descending (longest first at each start) and
+    /// keeps a match only when it begins at or after the previous kept match's end.
+    /// Shared by [`Filter::replace`] and [`Filter::find_all_layered`].
+    fn leftmost_longest_matches(&self, clean_text: &str) -> Vec<MatchInfo> {
+        let mut matches = self.engine.find_matches_with_positions(clean_text);
+        matches.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
+        let mut kept = Vec::with_capacity(matches.len());
+        let mut cursor = 0usize;
+        for m in matches {
+            if m.start >= cursor {
+                cursor = m.end;
+                kept.push(m);
+            }
+        }
+        kept
+    }
+
     /// Optimized method of finding all sensitive words.
     ///
     /// Returns the de-duplicated, sorted list of matched dictionary words (variants
@@ -467,45 +451,20 @@ impl Filter {
         results
     }
 
-    /// Parallel Processing Version - For Long Text
+    /// Parallel processing version — for long text.
+    ///
+    /// Exact scan and variant detection are independent, so they run concurrently via
+    /// [`rayon::join`]. Variant detection runs once over the full text (the previous
+    /// whitespace-split parallelization dropped cross-segment variants).
     #[cfg(feature = "parallel")]
     fn find_all_parallel(&self, text: &str) -> Vec<String> {
-        let chunk_size = std::cmp::max(text.len() / rayon::current_num_threads(), 100);
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+        let patterns: Vec<&str> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
 
-        // Compute overlap to catch patterns spanning chunk boundaries
-        let max_pattern_len = patterns.iter().map(|p| p.chars().count()).max().unwrap_or(0);
-        let overlap = max_pattern_len.min(chunk_size);
+        let (engine_results, variant_results) = rayon::join(
+            || self.engine.find_all(text),
+            || self.variant_detector.detect(text, &patterns).into_iter().map(String::from).collect::<Vec<_>>(),
+        );
 
-        // Build overlapping chunks for parallel processing
-        let chars: Vec<char> = text.chars().collect();
-        let engine_results: Vec<String> = if chars.len() <= chunk_size {
-            self.engine.find_all(text)
-        } else {
-            let step = chunk_size;
-            chars
-                .windows(chunk_size + overlap)
-                .step_by(step)
-                .collect::<Vec<_>>()
-                .par_iter()
-                .flat_map(|window| {
-                    let chunk_text: String = window.iter().collect();
-                    self.engine.find_all(&chunk_text)
-                })
-                .collect()
-        };
-
-        // Parallel variant detection - Fixed parallel iterator problem
-        let variant_results: Vec<String> = text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .par_iter()
-            .map(|segment| self.variant_detector.detect(segment, &patterns))
-            .flatten()
-            .map(|s| s.to_string())
-            .collect();
-
-        // Merge and remove repetition
         let mut results = engine_results;
         results.extend(variant_results);
         self.deduplicate_and_sort(results)
@@ -577,25 +536,24 @@ impl Filter {
     #[must_use]
     pub fn find_all_layered(&self, text: &str) -> Vec<String> {
         let clean_text = self.remove_noise(text);
-        let mut results = Vec::new();
-        let mut remaining_text = clean_text.clone();
+        let matches = self.leftmost_longest_matches(&clean_text);
 
-        // Arrange patterns in descending order of length, prioritize long words
-        let mut sorted_patterns = self.engine.get_patterns().to_vec();
-        sorted_patterns.sort_by_key(|b| std::cmp::Reverse(b.len()));
+        // The longest exact matches...
+        let mut results: Vec<String> = matches.iter().map(|m| m.pattern.clone()).collect();
 
-        // Hierarchical matching
-        for pattern in &sorted_patterns {
-            if remaining_text.contains(pattern) {
-                results.push(pattern.clone());
-                // Remove matching parts to avoid duplicate matches
-                remaining_text = remaining_text.replace(pattern, " ");
-            }
+        // ...then blank those spans before variant detection, so a shorter word's
+        // pinyin/shape isn't re-discovered inside a longer exact match.
+        let mut remaining = String::with_capacity(clean_text.len());
+        let mut cursor = 0usize;
+        for m in &matches {
+            remaining.push_str(&clean_text[cursor..m.start]);
+            remaining.push(' ');
+            cursor = m.end;
         }
+        remaining.push_str(&clean_text[cursor..]);
 
-        // Variation detection (for remaining text)
-        let patterns: Vec<_> = sorted_patterns.iter().map(|s| s.as_str()).collect();
-        results.extend(self.variant_detector.detect(&remaining_text, &patterns).into_iter().map(|s| s.to_string()));
+        let patterns: Vec<&str> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+        results.extend(self.variant_detector.detect(&remaining, &patterns).into_iter().map(String::from));
 
         self.deduplicate_and_sort(results)
     }
@@ -938,6 +896,48 @@ mod tests {
         assert!(results.contains(&"赌博机".to_string()));
         assert!(!results.contains(&"赌".to_string()));
         assert!(!results.contains(&"赌博".to_string()));
+    }
+
+    #[test]
+    fn test_find_all_layered_multi_occurrence() {
+        // Two non-overlapping longest matches are both kept; shorter overlapping
+        // forms inside each span are dropped.
+        let mut filter = Filter::new();
+        filter.add_words(&["赌", "赌博", "赌博机"]);
+
+        let results = filter.find_all_layered("赌博和赌博机");
+        assert!(results.contains(&"赌博".to_string()));
+        assert!(results.contains(&"赌博机".to_string()));
+        assert!(!results.contains(&"赌".to_string()));
+    }
+
+    #[test]
+    fn test_find_all_layered_blanks_exact_before_variant() {
+        // Regression: a short word whose pinyin is a substring of a longer exact
+        // match must NOT be re-added by variant detection — exact spans are blanked.
+        let mut filter = Filter::new();
+        filter.add_words(&["赌", "赌博", "赌博机"]);
+
+        let results = filter.find_all_layered("这里有赌博机");
+        // "赌"/"赌博" pinyin (du/dubo) sits inside "赌博机" pinyin (duboji), but the
+        // exact span is blanked first, so only the longest match survives.
+        assert_eq!(results, vec!["赌博机".to_string()]);
+    }
+
+    #[test]
+    fn test_replace_and_filter_are_exact_only() {
+        // Pins behavior: replace/filter mask exact dictionary matches only. A
+        // pinyin variant present in the text passes through unchanged (the variant
+        // detector reports word names, not the variant text spans to mask).
+        let mut filter = Filter::new();
+        filter.add_word("赌博");
+
+        // Exact match is masked / removed...
+        assert_eq!(filter.replace("含有赌博", '*'), "含有**");
+        assert_eq!(filter.filter("含有赌博"), "含有");
+        // ...but the pinyin variant "dubo" is left untouched.
+        assert_eq!(filter.replace("dubo", '*'), "dubo");
+        assert_eq!(filter.filter("dubo"), "dubo");
     }
 
     #[test]
