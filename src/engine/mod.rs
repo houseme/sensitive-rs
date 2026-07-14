@@ -12,10 +12,10 @@
 //! [`MultiPatternEngine::rebuild_with_algorithm`].
 
 pub mod wumanber;
-use crate::WuManber;
+use crate::engine::wumanber::WuManber;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use alloc::{string::String, string::ToString, sync::Arc, vec::Vec};
 use regex::Regex;
-use std::sync::Arc;
 
 /// Supported matching algorithm types
 ///
@@ -43,8 +43,8 @@ pub enum MatchAlgorithm {
     Regex,
 }
 
-impl std::fmt::Display for MatchAlgorithm {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for MatchAlgorithm {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::AhoCorasick => write!(f, "Aho-Corasick"),
             Self::WuManber => write!(f, "Wu-Manber"),
@@ -62,8 +62,8 @@ pub struct MultiPatternEngine {
     patterns: Vec<String>,        // Store all modes
 }
 
-impl std::fmt::Debug for MultiPatternEngine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for MultiPatternEngine {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("MultiPatternEngine")
             .field("algorithm", &self.algorithm)
             .field("pattern_count", &self.patterns.len())

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-14
+
+### Added
+
+- WASM support: `WasmFilter` (`wasm-bindgen`) for browsers/Node.js behind the `wasm` feature, exposing `addWord`/`addWords`/`findIn`/`findAll`/`replace`/`filter`/`loadWords`. No filesystem on WASM — use `loadWords` with in-memory text.
+- Async dictionary loading: `Filter::load_word_dict_async` (tokio; `async-io` feature) and `Filter::load_net_word_dict_async` (`net-async`). The synchronous API is unchanged.
+- `no_std` support: the crate now compiles with `--no-default-features` (verified on `thumbv7em-none-eabihf`). Core exact matching (`find_all`/`find_in`/`replace`/`filter`) works without `std`; the LRU cache, pinyin/shape variant detection, and file/network loaders require the `std` feature (on by default).
+- Cross-platform CI: tests run on Linux/macOS/Windows; new `wasm` (wasm32) and `no_std` check jobs.
+- "Platform Support" section in README (EN/CN) with WASM/no_std/async usage examples.
+
+### Changed
+
+- `regex` and `aho-corasick` use `default-features = false` (re-enabling their `std` sub-feature via the `std` feature) to permit `no_std`. `lru` and `pinyin-converter` are now optional, pulled only under `std`.
+- `WuManber` uses a compact FNV-1a hasher on `no_std` (replacing the std-only `DefaultHasher`), keeping the small-vocabulary algorithm available without `std`.
+- The blocking HTTP client is now built lazily per `load_net_word_dict` call (instead of stored on `Filter`), so a `Filter` can be created and dropped inside an async runtime without panicking.
+
 ## [1.2.1] - 2026-07-14
 
 ### Changed

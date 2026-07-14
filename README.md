@@ -39,20 +39,72 @@ The engine auto-selects based on vocabulary size:
 
 Override with `Filter::with_algorithm(...)` or `--algorithm` on the CLI.
 
+## Platform Support
+
+| Platform | Status | How |
+|----------|--------|-----|
+| Linux / macOS / Windows | Full support | default features / `--all-features` |
+| WASM (browser / Node.js) | Supported | `wasm` feature; no file/network I/O (use `loadWords`) |
+| Embedded (`no_std`) | Experimental | `--no-default-features`; core exact matching only |
+| Async (tokio) | Supported | `async-io` / `net-async` features |
+
+### WASM
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.3", default-features = false, features = ["wasm"] }
+```
+
+```javascript
+import init, { WasmFilter } from 'sensitive-rs';
+await init();
+const filter = new WasmFilter();
+filter.addWord('赌博');
+filter.findAll('含有赌博内容'); // ['赌博']
+filter.loadWords('色情\n诈骗'); // bulk-load from in-memory text
+```
+
+### `no_std` (embedded)
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.3", default-features = false }
+```
+
+Core `find_all` / `find_in` / `replace` / `filter` work without `std`. Pinyin/shape variant
+detection, the LRU cache, and the file/network loaders require the `std` feature (on by default).
+
+### Async
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.3", features = ["async-io"] }
+```
+
+```rust,no_run
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    use sensitive_rs::Filter;
+    let mut filter = Filter::new();
+    filter.load_word_dict_async("dict/dict.txt").await?;
+    Ok(())
+}
+```
+
 ## Installation
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "1.2.1"
+sensitive-rs = "1.3.0"
 ```
 
 For environments that should avoid `rayon` (for example WASM or embedded targets), disable default features:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.1", default-features = false }
+sensitive-rs = { version = "1.3.0", default-features = false }
 ```
 
 ## Quick Start
@@ -104,7 +156,7 @@ Install with the `cli` feature:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.1", features = ["cli"] }
+sensitive-rs = { version = "1.3.0", features = ["cli"] }
 ```
 
 Or install directly:

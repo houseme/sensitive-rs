@@ -65,8 +65,12 @@ jobs:
       - name: Run clippy check
         run: cargo clippy --all-features
   test:
-    name: Run tests
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -83,6 +87,36 @@ jobs:
           toolchain: stable
       - name: Run cargo test
         run: cargo test --all-features
+  wasm:
+    name: WASM (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - name: Check WASM build
+        run: cargo check --target wasm32-unknown-unknown --no-default-features --features wasm
+  no_std:
+    name: no_std
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - name: Check no_std (host)
+        run: cargo check --no-default-features
+      - name: Check no_std (thumbv7em)
+        continue-on-error: true # best-effort: depends on upstream no_std support
+        run: |
+          rustup target add thumbv7em-none-eabihf
+          cargo check --no-default-features --target thumbv7em-none-eabihf
   publish_on_crates_io:
     name: Publish on crates.io
     runs-on: ubuntu-latest
@@ -92,6 +126,8 @@ jobs:
       - rust_fmt_check
       - clippy_check
       - test
+      - wasm
+      - no_std
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

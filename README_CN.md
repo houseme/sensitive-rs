@@ -39,20 +39,72 @@
 
 可通过 `Filter::with_algorithm(...)` 或 CLI 的 `--algorithm` 强制指定。
 
+## 平台支持
+
+| 平台 | 状态 | 方式 |
+|------|------|------|
+| Linux / macOS / Windows | 完整支持 | 默认 features / `--all-features` |
+| WASM（浏览器 / Node.js） | 支持 | `wasm` feature；无文件/网络 I/O（用 `loadWords`） |
+| 嵌入式（`no_std`） | 实验性 | `--no-default-features`；仅核心精确匹配 |
+| 异步（tokio） | 支持 | `async-io` / `net-async` feature |
+
+### WASM
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.3", default-features = false, features = ["wasm"] }
+```
+
+```javascript
+import init, { WasmFilter } from 'sensitive-rs';
+await init();
+const filter = new WasmFilter();
+filter.addWord('赌博');
+filter.findAll('含有赌博内容'); // ['赌博']
+filter.loadWords('色情\n诈骗'); // 从内存文本批量加载
+```
+
+### `no_std`（嵌入式）
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.3", default-features = false }
+```
+
+核心的 `find_all` / `find_in` / `replace` / `filter` 在无 `std` 时可用；拼音/形近字变体检测、LRU
+缓存以及文件/网络加载器需要 `std` feature（默认开启）。
+
+### 异步
+
+```toml
+[dependencies]
+sensitive-rs = { version = "1.3", features = ["async-io"] }
+```
+
+```rust,no_run
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    use sensitive_rs::Filter;
+    let mut filter = Filter::new();
+    filter.load_word_dict_async("dict/dict.txt").await?;
+    Ok(())
+}
+```
+
 ## 安装
 
 在 `Cargo.toml` 中添加：
 
 ```toml
 [dependencies]
-sensitive-rs = "1.2.1"
+sensitive-rs = "1.3.0"
 ```
 
 如果目标环境不适合引入 `rayon`（例如 WASM 或嵌入式场景），可以关闭默认功能：
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.1", default-features = false }
+sensitive-rs = { version = "1.3.0", default-features = false }
 ```
 
 ## 快速开始
@@ -104,7 +156,7 @@ let stream_results = filter.find_all_streaming(reader)?;
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.1", features = ["cli"] }
+sensitive-rs = { version = "1.3.0", features = ["cli"] }
 ```
 
 或直接安装：

@@ -7,29 +7,35 @@
 //! noise via a configurable regex, then matched exactly against the dictionary, and finally
 //! checked for pinyin/shape variants.
 
-use crate::engine::MatchAlgorithm;
-use crate::{engine::MatchInfo, engine::MultiPatternEngine, variant::VariantDetector};
-use lru::LruCache;
+use crate::engine::{MatchAlgorithm, MatchInfo, MultiPatternEngine};
+use alloc::string::String;
+use alloc::string::ToString;
+use alloc::vec;
+use alloc::vec::Vec;
+use hashbrown::HashSet;
+use regex::Regex;
+
+#[cfg(feature = "std")]
+use crate::variant::VariantDetector;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use regex::Regex;
-use std::collections::HashSet;
-use std::num::NonZero;
-use std::sync::{Arc, Mutex};
+#[cfg(feature = "std")]
 use std::{
     fs::File,
     io::{self, BufRead, BufReader},
     path::Path,
 };
+#[cfg(feature = "std")]
+use {alloc::sync::Arc, lru::LruCache, std::num::NonZero, std::sync::Mutex};
 
 /// Advanced sensitive word filter with variant detection
 pub struct Filter {
-    engine: MultiPatternEngine,        // Multi-pattern matching engine
-    variant_detector: VariantDetector, // Variation detector
-    noise: Regex,                      // Noise processing rules
+    engine: MultiPatternEngine, // Multi-pattern matching engine
+    #[cfg(feature = "std")]
+    variant_detector: VariantDetector, // Variation detector (pinyin/shape)
+    noise: Regex,               // Noise processing rules
+    #[cfg(feature = "std")]
     cache: Arc<Mutex<LruCache<String, Vec<String>>>>,
-    #[cfg(feature = "net")]
-    http_client: reqwest::blocking::Client, // Network request client
 }
 
 /// A sensitive-word match found by [`Filter::find_first_match`].
@@ -44,14 +50,9 @@ pub struct Match {
     pub is_variant: bool,
 }
 
-impl std::fmt::Debug for Filter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Filter")
-            .field("engine", &self.engine)
-            .field("variant_detector", &self.variant_detector)
-            .field("noise", &self.noise)
-            .field("cache", &"<LruCache>")
-            .finish()
+impl core::fmt::Debug for Filter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Filter").field("engine", &self.engine).field("noise", &self.noise).finish_non_exhaustive()
     }
 }
 
@@ -70,21 +71,20 @@ impl Filter {
     pub fn new() -> Self {
         Self {
             engine: MultiPatternEngine::new(None, &[]),
+            #[cfg(feature = "std")]
             variant_detector: VariantDetector::new(),
             noise: Regex::new(r"[^\w\s\u4e00-\u9fff]").unwrap(),
+            #[cfg(feature = "std")]
             cache: Arc::new(Mutex::new(LruCache::new(NonZero::new(1000).unwrap()))), // Cache 1000 results
-            #[cfg(feature = "net")]
-            http_client: reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap(),
         }
     }
 
+    #[cfg(feature = "std")]
     fn check_cache(&self, text: &str) -> Option<Vec<String>> {
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).get(text).cloned()
     }
 
+    #[cfg(feature = "std")]
     fn cache_result(&self, text: &str, results: &[String]) {
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).put(text.to_string(), results.to_vec());
     }
@@ -113,6 +113,7 @@ impl Filter {
 
     /// Clear the cache
     pub fn clear_cache(&self) {
+        #[cfg(feature = "std")]
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
@@ -122,6 +123,7 @@ impl Filter {
     }
 
     /// Load default dictionary
+    #[cfg(feature = "std")]
     pub fn with_default_dict() -> io::Result<Self> {
         let mut filter = Self::new();
         filter.load_word_dict("dict/dict.txt")?;
@@ -171,6 +173,7 @@ impl Filter {
         Self::extend_patterns_with_word_variants(&mut patterns, words);
 
         self.engine.rebuild(&patterns);
+        #[cfg(feature = "std")]
         for word in words {
             for variant in Self::word_match_variants(word) {
                 self.variant_detector.add_word(&variant);
@@ -200,6 +203,7 @@ impl Filter {
     }
 
     /// Load dictionary from file
+    #[cfg(feature = "std")]
     pub fn load_word_dict<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
         let file = File::open(path)?;
         self.load(BufReader::new(file))
@@ -220,6 +224,7 @@ impl Filter {
     /// assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "std")]
     pub fn load<R: BufRead>(&mut self, reader: R) -> io::Result<()> {
         let words: Vec<_> = reader.lines().collect::<Result<_, _>>()?;
         self.add_words(&words.iter().map(|s| s.as_str()).collect::<Vec<_>>());
@@ -229,7 +234,13 @@ impl Filter {
     /// Load dictionary from URL
     #[cfg(feature = "net")]
     pub fn load_net_word_dict(&mut self, url: &str) -> io::Result<()> {
-        let response = self.http_client.get(url).send().map_err(io::Error::other)?;
+        // Build a client per call (lazy) rather than storing one, so a `Filter` can
+        // be created/dropped inside an async runtime without panicking.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(io::Error::other)?;
+        let response = client.get(url).send().map_err(io::Error::other)?;
 
         if !response.status().is_success() {
             return Err(io::Error::other(format!("HTTP request failed: {}", response.status())));
@@ -274,11 +285,13 @@ impl Filter {
             return Some(Match { word, is_variant: false });
         }
 
-        // 2. Try variant detection
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-
-        if let Some(word) = self.variant_detector.detect(&clean_text, &patterns).first() {
-            return Some(Match { word: word.to_string(), is_variant: true });
+        // 2. Try variant detection (requires `std`: pinyin/shape detection)
+        #[cfg(feature = "std")]
+        {
+            let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+            if let Some(word) = self.variant_detector.detect(&clean_text, &patterns).first() {
+                return Some(Match { word: word.to_string(), is_variant: true });
+            }
         }
 
         None
@@ -432,6 +445,7 @@ impl Filter {
         let clean_text = self.remove_noise(text);
 
         // 1. Caching mechanism - Check whether the results have been cached
+        #[cfg(feature = "std")]
         if let Some(cached_result) = self.check_cache(&clean_text) {
             return cached_result;
         }
@@ -446,6 +460,7 @@ impl Filter {
         let results = self.find_all_sequential(&clean_text);
 
         // 3. Cache results
+        #[cfg(feature = "std")]
         self.cache_result(&clean_text, &results);
 
         results
@@ -473,10 +488,13 @@ impl Filter {
     /// Sequential processing version - suitable for short text
     fn find_all_sequential(&self, text: &str) -> Vec<String> {
         let mut results = self.engine.find_all(text);
-        let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
 
-        // Add variant detection results
-        results.extend(self.variant_detector.detect(text, &patterns).into_iter().map(|s| s.to_string()));
+        // Add variant detection results (std only: pinyin/shape detection)
+        #[cfg(feature = "std")]
+        {
+            let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+            results.extend(self.variant_detector.detect(text, &patterns).into_iter().map(|s| s.to_string()));
+        }
 
         self.deduplicate_and_sort(results)
     }
@@ -542,18 +560,21 @@ impl Filter {
         let mut results: Vec<String> = matches.iter().map(|m| m.pattern.clone()).collect();
 
         // ...then blank those spans before variant detection, so a shorter word's
-        // pinyin/shape isn't re-discovered inside a longer exact match.
-        let mut remaining = String::with_capacity(clean_text.len());
-        let mut cursor = 0usize;
-        for m in &matches {
-            remaining.push_str(&clean_text[cursor..m.start]);
-            remaining.push(' ');
-            cursor = m.end;
-        }
-        remaining.push_str(&clean_text[cursor..]);
+        // pinyin/shape isn't re-discovered inside a longer exact match. (std only)
+        #[cfg(feature = "std")]
+        {
+            let mut remaining = String::with_capacity(clean_text.len());
+            let mut cursor = 0usize;
+            for m in &matches {
+                remaining.push_str(&clean_text[cursor..m.start]);
+                remaining.push(' ');
+                cursor = m.end;
+            }
+            remaining.push_str(&clean_text[cursor..]);
 
-        let patterns: Vec<&str> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-        results.extend(self.variant_detector.detect(&remaining, &patterns).into_iter().map(String::from));
+            let patterns: Vec<&str> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
+            results.extend(self.variant_detector.detect(&remaining, &patterns).into_iter().map(String::from));
+        }
 
         self.deduplicate_and_sort(results)
     }
@@ -576,6 +597,7 @@ impl Filter {
     /// assert_eq!(results.len(), 2);
     /// # Ok::<(), std::io::Error>(())
     /// ```
+    #[cfg(feature = "std")]
     pub fn find_all_streaming<R: BufRead>(&self, reader: R) -> io::Result<Vec<String>> {
         let mut all_results = Vec::new();
 
@@ -586,6 +608,57 @@ impl Filter {
         }
 
         Ok(self.deduplicate_and_sort(all_results))
+    }
+}
+
+/// Async dictionary loading (non-blocking I/O). Enable with the `async-io` feature
+/// (and `net-async` for the URL loader). The synchronous API is unchanged.
+#[cfg(feature = "async-io")]
+impl Filter {
+    /// Load a dictionary from a file without blocking the caller's thread.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main] async fn main() -> std::io::Result<()> {
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.load_word_dict_async("dict/dict.txt").await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn load_word_dict_async<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let file = tokio::fs::File::open(path).await?;
+        let mut lines = BufReader::new(file).lines();
+        let mut words = Vec::new();
+        while let Some(line) = lines.next_line().await? {
+            words.push(line);
+        }
+        let refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
+        self.add_words(&refs);
+        Ok(())
+    }
+
+    /// Load a dictionary from a URL without blocking. Requires the `net-async` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main] async fn main() -> std::io::Result<()> {
+    /// use sensitive_rs::Filter;
+    ///
+    /// let mut filter = Filter::new();
+    /// filter.load_net_word_dict_async("https://example.com/dict.txt").await?;
+    /// # Ok(()) }
+    /// ```
+    #[cfg(feature = "net-async")]
+    pub async fn load_net_word_dict_async(&mut self, url: &str) -> io::Result<()> {
+        let response = reqwest::get(url).await.map_err(io::Error::other)?;
+        let content = response.text().await.map_err(io::Error::other)?;
+        let words: Vec<&str> = content.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        self.add_words(&words);
+        Ok(())
     }
 }
 
@@ -1034,5 +1107,21 @@ mod tests {
         let text = "含有赌博内容 𠀀𠀁";
         let (found, _) = filter.find_in(text);
         assert!(found);
+    }
+
+    // ---- Async loading (async-io feature) ----
+
+    #[cfg(feature = "async-io")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_load_word_dict_async() {
+        let path = std::env::temp_dir().join(format!("sensitive-rs-async-{}.txt", std::process::id()));
+        std::fs::write(&path, "赌博\n色情\n").unwrap();
+
+        let mut filter = Filter::new();
+        filter.load_word_dict_async(&path).await.unwrap();
+
+        assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
+        assert!(filter.find_all("赌博和色情").iter().any(|w| w == "色情"));
+        let _ = std::fs::remove_file(&path);
     }
 }

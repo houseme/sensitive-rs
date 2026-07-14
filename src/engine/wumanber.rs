@@ -1,10 +1,41 @@
-use hashbrown::HashMap;
+use alloc::{string::String, string::ToString, sync::Arc, vec::Vec};
+use core::hash::{Hash, Hasher};
+use hashbrown::{HashMap, HashSet};
 #[cfg(feature = "parallel")]
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use smallvec::SmallVec;
-use std::collections::HashSet;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Arc;
+
+#[cfg(feature = "std")]
+use std::hash::DefaultHasher;
+
+/// Compact FNV-1a hasher used on `no_std` targets where `std::hash::DefaultHasher`
+/// (SipHash) is unavailable. Quality is sufficient for the shift/hash tables.
+#[cfg(not(feature = "std"))]
+struct Fnv1a(u64);
+
+#[cfg(not(feature = "std"))]
+impl Fnv1a {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    fn new() -> Self {
+        Self(Self::OFFSET)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl Hasher for Fnv1a {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.0;
+        for &b in bytes {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(Self::PRIME);
+        }
+        self.0 = h;
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
 
 /// Space handling policy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,7 +340,11 @@ impl WuManber {
     /// Optimized hash calculation with better performance
     #[inline]
     fn calculate_hash_fast(s: &str) -> u64 {
+        // `DefaultHasher` (SipHash) under std; a compact FNV-1a fallback on `no_std`.
+        #[cfg(feature = "std")]
         let mut hasher = DefaultHasher::new();
+        #[cfg(not(feature = "std"))]
+        let mut hasher = Fnv1a::new();
         s.hash(&mut hasher);
         hasher.finish()
     }
