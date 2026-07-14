@@ -45,14 +45,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sensitive-rs = "1.2.0"
+sensitive-rs = "1.2.1"
 ```
 
 For environments that should avoid `rayon` (for example WASM or embedded targets), disable default features:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.0", default-features = false }
+sensitive-rs = { version = "1.2.1", default-features = false }
 ```
 
 ## Quick Start
@@ -104,7 +104,7 @@ Install with the `cli` feature:
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.0", features = ["cli"] }
+sensitive-rs = { version = "1.2.1", features = ["cli"] }
 ```
 
 Or install directly:
