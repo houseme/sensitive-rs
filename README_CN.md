@@ -45,14 +45,14 @@
 
 ```toml
 [dependencies]
-sensitive-rs = "1.2.0"
+sensitive-rs = "1.2.1"
 ```
 
 如果目标环境不适合引入 `rayon`（例如 WASM 或嵌入式场景），可以关闭默认功能：
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.0", default-features = false }
+sensitive-rs = { version = "1.2.1", default-features = false }
 ```
 
 ## 快速开始
@@ -104,7 +104,7 @@ let stream_results = filter.find_all_streaming(reader)?;
 
 ```toml
 [dependencies]
-sensitive-rs = { version = "1.2.0", features = ["cli"] }
+sensitive-rs = { version = "1.2.1", features = ["cli"] }
 ```
 
 或直接安装：
