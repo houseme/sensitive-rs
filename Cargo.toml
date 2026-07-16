@@ -16,7 +16,7 @@ include = ["src/**", "dict/**", "benches/**", "examples/**", "Cargo.toml", "READ
 
 
 [dependencies]
-regex = { version = "1.13.0", default-features = false, features = ["unicode"] }
+regex = { version = "1.13.1", default-features = false, features = ["unicode"] }
 aho-corasick = { version = "1.1.4", default-features = false }
 hashbrown = "0.17.1"
 pinyin-converter = { version = "0.1.0", optional = true }
