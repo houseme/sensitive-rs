@@ -1,4 +1,4 @@
-use alloc::{string::String, string::ToString, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, string::String, string::ToString, sync::Arc, vec::Vec};
 use core::hash::{Hash, Hasher};
 use hashbrown::{HashMap, HashSet};
 #[cfg(feature = "parallel")]
@@ -53,6 +53,9 @@ pub enum SpaceHandling {
 #[derive(Debug, Clone)]
 pub struct WuManber {
     patterns: Vec<Arc<String>>,
+    /// Char decomposition of each (processed) pattern, precomputed once at build
+    /// time so the verify hot path never re-collects `pattern.chars()`.
+    pattern_chars: Vec<Box<[char]>>,
     original_patterns: Vec<String>,
     pattern_set: HashSet<Arc<String>>, // For quick lookup
     min_len: usize,
@@ -157,6 +160,7 @@ impl WuManber {
     fn empty() -> Self {
         WuManber {
             patterns: Vec::new(),
+            pattern_chars: Vec::new(),
             original_patterns: Vec::new(),
             pattern_set: HashSet::new(),
             min_len: 0,
@@ -190,10 +194,14 @@ impl WuManber {
         let safe_block_size = block_size.min(min_len);
 
         let patterns_arc: Vec<Arc<String>> = processed_patterns.into_iter().map(Arc::new).collect();
+        // Precompute char views once; the scan/verify paths index into these
+        // instead of allocating a `Vec<char>` per candidate pattern.
+        let pattern_chars: Vec<Box<[char]>> = patterns_arc.iter().map(|p| p.chars().collect()).collect();
         // Build pattern_set for quick lookups
         let pattern_set: HashSet<Arc<String>> = patterns_arc.iter().cloned().collect();
         let mut instance = WuManber {
             patterns: patterns_arc,
+            pattern_chars,
             original_patterns,
             pattern_set,
             min_len,
@@ -235,8 +243,8 @@ impl WuManber {
 
     /// Build shift table sequentially with optimized character handling
     fn build_shift_table(&mut self) {
-        for pattern in self.patterns.iter() {
-            let chars: Vec<char> = pattern.chars().collect();
+        for (idx, _pattern) in self.patterns.iter().enumerate() {
+            let chars = &self.pattern_chars[idx];
             let char_count = chars.len();
 
             // Prevent spillage: Ensure that the pattern length is greater than or equal to block_size
@@ -245,8 +253,7 @@ impl WuManber {
             }
 
             for i in 0..=(char_count - self.block_size) {
-                let block = self.extract_block_optimized(&chars, i);
-                let hash = Self::calculate_hash_fast(&block);
+                let hash = Self::calculate_hash_chars(&chars[i..i + self.block_size]);
                 let shift = char_count - i - self.block_size;
 
                 self.shift_table.entry(hash).and_modify(|v| *v = (*v).min(shift)).or_insert(shift);
@@ -256,14 +263,13 @@ impl WuManber {
 
     /// Build hash table sequentially with memory optimization
     fn build_hash_table(&mut self) {
-        for (pattern_idx, pattern) in self.patterns.iter().enumerate() {
-            let chars: Vec<char> = pattern.chars().collect();
+        for (pattern_idx, _pattern) in self.patterns.iter().enumerate() {
+            let chars = &self.pattern_chars[pattern_idx];
             let char_count = chars.len();
 
             if char_count >= self.block_size {
                 let start_pos = char_count - self.block_size;
-                let block = self.extract_block_optimized(&chars, start_pos);
-                let hash = Self::calculate_hash_fast(&block);
+                let hash = Self::calculate_hash_chars(&chars[start_pos..start_pos + self.block_size]);
 
                 self.hash_table.entry(hash).or_default().push(pattern_idx);
             }
@@ -276,10 +282,9 @@ impl WuManber {
         let block_size = self.block_size;
 
         let shift_entries: Vec<(u64, usize)> = self
-            .patterns
+            .pattern_chars
             .par_iter()
-            .flat_map(|pattern| {
-                let chars: Vec<char> = pattern.chars().collect();
+            .flat_map(|chars| {
                 let char_count = chars.len();
 
                 if char_count < block_size {
@@ -288,8 +293,7 @@ impl WuManber {
 
                 (0..=(char_count - block_size))
                     .map(move |i| {
-                        let block = chars[i..i + block_size].iter().collect::<String>();
-                        let hash = Self::calculate_hash_fast(&block);
+                        let hash = Self::calculate_hash_chars(&chars[i..i + block_size]);
                         let shift = char_count - i - block_size;
                         (hash, shift)
                     })
@@ -308,17 +312,15 @@ impl WuManber {
         let block_size = self.block_size;
 
         let hash_entries: Vec<(u64, usize)> = self
-            .patterns
+            .pattern_chars
             .par_iter()
             .enumerate()
-            .filter_map(|(pattern_idx, pattern)| {
-                let chars: Vec<char> = pattern.chars().collect();
+            .filter_map(|(pattern_idx, chars)| {
                 let char_count = chars.len();
 
                 if char_count >= block_size {
                     let start_pos = char_count - block_size;
-                    let block = chars[start_pos..start_pos + block_size].iter().collect::<String>();
-                    let hash = Self::calculate_hash_fast(&block);
+                    let hash = Self::calculate_hash_chars(&chars[start_pos..start_pos + block_size]);
                     Some((hash, pattern_idx))
                 } else {
                     None
@@ -331,21 +333,15 @@ impl WuManber {
         }
     }
 
-    /// Extract block from character array with reduced allocations
+    /// Hash a block of characters directly (no intermediate `String` allocation).
     #[inline]
-    fn extract_block_optimized(&self, chars: &[char], start: usize) -> String {
-        chars[start..start + self.block_size].iter().collect()
-    }
-
-    /// Optimized hash calculation with better performance
-    #[inline]
-    fn calculate_hash_fast(s: &str) -> u64 {
+    fn calculate_hash_chars(chars: &[char]) -> u64 {
         // `DefaultHasher` (SipHash) under std; a compact FNV-1a fallback on `no_std`.
         #[cfg(feature = "std")]
         let mut hasher = DefaultHasher::new();
         #[cfg(not(feature = "std"))]
         let mut hasher = Fnv1a::new();
-        s.hash(&mut hasher);
+        chars.hash(&mut hasher);
         hasher.finish()
     }
 
@@ -359,7 +355,8 @@ impl WuManber {
             return self.search_with_preprocessing(text);
         }
 
-        let chars: Vec<char> = text.chars().collect();
+        // Stack buffer covers typical short texts without touching the heap.
+        let chars: SmallVec<[char; 64]> = text.chars().collect();
         let text_len = chars.len();
 
         if text_len < self.min_len {
@@ -375,8 +372,7 @@ impl WuManber {
             }
 
             let block_start = pos + 1 - self.block_size;
-            let block = self.extract_block_optimized(&chars, block_start);
-            let hash = Self::calculate_hash_fast(&block);
+            let hash = Self::calculate_hash_chars(&chars[block_start..block_start + self.block_size]);
 
             if let Some(&shift) = self.shift_table.get(&hash) {
                 if shift == 0 {
@@ -388,8 +384,8 @@ impl WuManber {
 
                     let prev_block_start = block_start.saturating_sub(1);
                     if prev_block_start < block_start {
-                        let prev_block = self.extract_block_optimized(&chars, prev_block_start);
-                        let prev_hash = Self::calculate_hash_fast(&prev_block);
+                        let prev_hash =
+                            Self::calculate_hash_chars(&chars[prev_block_start..prev_block_start + self.block_size]);
                         if let Some(found) = self.hash_table.get(&prev_hash).and_then(|prev_pattern_indices| {
                             self.verify_matches_arc(&chars, pos - 1, prev_pattern_indices)
                         }) {
@@ -412,28 +408,21 @@ impl WuManber {
 
     /// Search with preprocessing for non-strict space handling
     fn search_with_preprocessing(&self, text: &str) -> Option<Arc<String>> {
-        for (i, original_pattern) in self.original_patterns.iter().enumerate() {
-            let processed_text = self.preprocess_text(text);
-            let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
-
-            if processed_text.contains(&processed_pattern) {
-                return self.patterns.get(i).cloned();
-            }
-        }
-        None
+        // Preprocess the text once (was previously re-done per pattern).
+        let processed_text = self.preprocess_text(text);
+        self.patterns.iter().filter(|p| !p.is_empty()).find(|p| processed_text.contains(p.as_str())).cloned()
     }
 
     /// Verify potential matches and return Arc pattern
     fn verify_matches_arc(&self, chars: &[char], pos: usize, pattern_indices: &[usize]) -> Option<Arc<String>> {
         for &pattern_idx in pattern_indices {
-            if let Some(pattern) = self.patterns.get(pattern_idx) {
-                let pattern_chars: Vec<char> = pattern.chars().collect();
+            if let Some(pattern_chars) = self.pattern_chars.get(pattern_idx) {
                 let pattern_len = pattern_chars.len();
 
                 if pos + 1 >= pattern_len {
                     let start = pos + 1 - pattern_len;
                     if chars[start..start + pattern_len] == pattern_chars[..] {
-                        return Some(pattern.clone());
+                        return self.patterns.get(pattern_idx).cloned();
                     }
                 }
             }
@@ -445,11 +434,14 @@ impl WuManber {
     pub fn search_string(&self, text: &str) -> Option<String> {
         if self.space_handling != SpaceHandling::Strict {
             // For non-strict matches, use simplified logic to ensure correctness
-            for original_pattern in &self.original_patterns {
-                let processed_text = self.preprocess_text(text);
-                let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
-                if processed_text.contains(&processed_pattern) {
-                    return Some(original_pattern.clone());
+            let processed_text = self.preprocess_text(text);
+            for (i, original_pattern) in self.original_patterns.iter().enumerate() {
+                match self.patterns.get(i) {
+                    // Skip patterns that preprocess to empty (they would match anything).
+                    Some(processed) if !processed.is_empty() && processed_text.contains(&**processed) => {
+                        return Some(original_pattern.clone());
+                    }
+                    _ => continue,
                 }
             }
             return None;
@@ -467,7 +459,7 @@ impl WuManber {
             return self.search_all_with_preprocessing(text);
         }
 
-        let chars: Vec<char> = text.chars().collect();
+        let chars: SmallVec<[char; 64]> = text.chars().collect();
         let mut results = Vec::new();
         let mut found_indices = HashSet::new();
         self.scan_core(&chars, |pattern_idx, _start, _len| {
@@ -499,8 +491,7 @@ impl WuManber {
             }
 
             let block_start = pos + 1 - self.block_size;
-            let block = self.extract_block_optimized(chars, block_start);
-            let hash = Self::calculate_hash_fast(&block);
+            let hash = Self::calculate_hash_chars(&chars[block_start..block_start + self.block_size]);
 
             if let Some(&shift) = self.shift_table.get(&hash) {
                 if shift == 0 {
@@ -510,8 +501,8 @@ impl WuManber {
                     // Overlap handling: re-check the previous block.
                     let prev_block_start = block_start.saturating_sub(1);
                     if prev_block_start < block_start {
-                        let prev_block = self.extract_block_optimized(chars, prev_block_start);
-                        let prev_hash = Self::calculate_hash_fast(&prev_block);
+                        let prev_hash =
+                            Self::calculate_hash_chars(&chars[prev_block_start..prev_block_start + self.block_size]);
                         if let Some(prev_pattern_indices) = self.hash_table.get(&prev_hash) {
                             self.verify_and_emit(chars, pos - 1, prev_pattern_indices, &mut on_match);
                         }
@@ -537,8 +528,7 @@ impl WuManber {
         on_match: &mut impl FnMut(usize, usize, usize),
     ) {
         for &pattern_idx in pattern_indices {
-            if let Some(pattern) = self.patterns.get(pattern_idx) {
-                let pattern_chars: Vec<char> = pattern.chars().collect();
+            if let Some(pattern_chars) = self.pattern_chars.get(pattern_idx) {
                 let pattern_len = pattern_chars.len();
                 if pos + 1 >= pattern_len {
                     let start = pos + 1 - pattern_len;
@@ -554,16 +544,18 @@ impl WuManber {
     fn search_all_with_preprocessing(&self, text: &str) -> Vec<Arc<String>> {
         let mut results = Vec::new();
         let mut found_indices = HashSet::new();
+        // Preprocess the text once; reuse the patterns preprocessed at build time.
         let processed_text = self.preprocess_text(text);
 
         for (i, original_pattern) in self.original_patterns.iter().enumerate() {
-            let processed_pattern = Self::preprocess_pattern(original_pattern, self.space_handling);
-
-            if processed_text.contains(&processed_pattern) && !found_indices.contains(&i) {
-                found_indices.insert(i);
-                if i < self.patterns.len() {
-                    results.push(self.patterns[i].clone());
+            match self.patterns.get(i) {
+                // Skip patterns that preprocess to empty (they would match anything).
+                Some(processed) if !processed.is_empty() && processed_text.contains(processed.as_str()) => {
+                    if found_indices.insert(i) {
+                        results.push(Arc::new(original_pattern.clone()));
+                    }
                 }
+                _ => continue,
             }
         }
 
@@ -626,7 +618,8 @@ impl WuManber {
             return self.find_matches_bruteforce(text);
         }
 
-        let chars: Vec<char> = text.chars().collect();
+        // Stack buffer covers typical short texts without touching the heap.
+        let chars: SmallVec<[char; 64]> = text.chars().collect();
         // char index -> byte offset (O(n) once). A trailing sentinel = text.len()
         // lets a match ending at the last char resolve to the end of the text.
         let mut char_to_byte: Vec<usize> = text.char_indices().map(|(b, _)| b).collect();

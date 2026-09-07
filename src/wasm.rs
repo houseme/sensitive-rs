@@ -67,13 +67,14 @@ impl WasmFilter {
 
     /// Load a dictionary from in-memory text (one word per line). This replaces
     /// the filesystem-based loaders, which are unavailable on WASM.
+    ///
+    /// All lines are collected and added in a single batch, so the matching engine
+    /// is rebuilt once instead of once per word.
     #[wasm_bindgen(js_name = loadWords)]
     pub fn load_words(&mut self, content: &str) {
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                self.inner.add_word(trimmed);
-            }
+        let words: Vec<&str> = content.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+        if !words.is_empty() {
+            self.inner.add_words(&words);
         }
     }
 }

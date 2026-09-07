@@ -111,6 +111,20 @@ impl Filter {
         }
     }
 
+    /// Re-register the variant detector from the (already updated) engine patterns.
+    ///
+    /// Keeps the invariant that the detector's active words equal the engine's patterns,
+    /// so deleted words can never resurface as pinyin/shape variants and the detection
+    /// hot path needs no per-call filtering.
+    #[cfg(feature = "std")]
+    fn sync_variant_detector(&mut self) {
+        self.variant_detector.clear();
+        let patterns = self.engine.get_patterns().to_vec();
+        for pattern in &patterns {
+            self.variant_detector.add_word(pattern);
+        }
+    }
+
     /// Clear the cache
     pub fn clear_cache(&self) {
         #[cfg(feature = "std")]
@@ -174,11 +188,7 @@ impl Filter {
 
         self.engine.rebuild(&patterns);
         #[cfg(feature = "std")]
-        for word in words {
-            for variant in Self::word_match_variants(word) {
-                self.variant_detector.add_word(&variant);
-            }
-        }
+        self.sync_variant_detector();
         self.clear_cache();
     }
 
@@ -199,6 +209,8 @@ impl Filter {
         let patterns: Vec<_> = self.engine.get_patterns().iter().filter(|w| !word_set.contains(*w)).cloned().collect();
 
         self.engine.rebuild(&patterns);
+        #[cfg(feature = "std")]
+        self.sync_variant_detector();
         self.clear_cache();
     }
 
@@ -226,7 +238,15 @@ impl Filter {
     /// ```
     #[cfg(feature = "std")]
     pub fn load<R: BufRead>(&mut self, reader: R) -> io::Result<()> {
-        let words: Vec<_> = reader.lines().collect::<Result<_, _>>()?;
+        // Blank lines must never become dictionary words: an empty pattern would match
+        // at every position (and crash byte-span slicing inside multi-byte chars).
+        let words: Vec<String> = reader
+            .lines()
+            .collect::<io::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect();
         self.add_words(&words.iter().map(|s| s.as_str()).collect::<Vec<_>>());
         Ok(())
     }
@@ -288,8 +308,9 @@ impl Filter {
         // 2. Try variant detection (requires `std`: pinyin/shape detection)
         #[cfg(feature = "std")]
         {
-            let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-            if let Some(word) = self.variant_detector.detect(&clean_text, &patterns).first() {
+            // The detector's registrations always mirror the engine patterns, so the
+            // internal no-filter path applies.
+            if let Some(word) = self.variant_detector.detect_first_internal(&clean_text) {
                 return Some(Match { word: word.to_string(), is_variant: true });
             }
         }
@@ -338,17 +359,17 @@ impl Filter {
     #[must_use]
     pub fn replace(&self, text: &str, replacement: char) -> String {
         let clean_text = self.remove_noise(text);
-        let repl = replacement.to_string();
 
-        // Single pass over leftmost-longest non-overlapping matches: one replacement
-        // char per matched character. Exact matches only — see the doc note above.
-        let matches = self.leftmost_longest_matches(&clean_text);
+        // Single pass over leftmost-longest non-overlapping match spans: one
+        // replacement char per matched character. Span-only matching avoids cloning
+        // the matched text for every hit. Exact matches only — see the doc note above.
+        let matches = self.leftmost_longest_spans(&clean_text);
         let mut result = String::with_capacity(clean_text.len());
         let mut cursor = 0usize;
-        for m in &matches {
-            result.push_str(&clean_text[cursor..m.start]);
-            result.push_str(&repl.repeat(clean_text[m.start..m.end].chars().count()));
-            cursor = m.end;
+        for (start, end) in &matches {
+            result.push_str(&clean_text[cursor..*start]);
+            result.extend(core::iter::repeat_n(replacement, clean_text[*start..*end].chars().count()));
+            cursor = *end;
         }
         result.push_str(&clean_text[cursor..]);
         result
@@ -397,7 +418,7 @@ impl Filter {
     /// Remove only specific noise characters, preserve spaces
     #[must_use]
     pub fn remove_noise(&self, text: &str) -> String {
-        self.noise.replace_all(text, "").to_string()
+        self.noise.replace_all(text, "").into_owned()
     }
 
     /// Get current noise pattern
@@ -410,7 +431,7 @@ impl Filter {
     ///
     /// Sorts by start ascending then end descending (longest first at each start) and
     /// keeps a match only when it begins at or after the previous kept match's end.
-    /// Shared by [`Filter::replace`] and [`Filter::find_all_layered`].
+    /// Used by [`Filter::find_all_layered`].
     fn leftmost_longest_matches(&self, clean_text: &str) -> Vec<MatchInfo> {
         let mut matches = self.engine.find_matches_with_positions(clean_text);
         matches.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
@@ -420,6 +441,22 @@ impl Filter {
             if m.start >= cursor {
                 cursor = m.end;
                 kept.push(m);
+            }
+        }
+        kept
+    }
+
+    /// Span-only variant of [`Filter::leftmost_longest_matches`], used by
+    /// [`Filter::replace`] where the matched text itself is never needed.
+    fn leftmost_longest_spans(&self, clean_text: &str) -> Vec<(usize, usize)> {
+        let mut spans = self.engine.find_match_spans(clean_text);
+        spans.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+        let mut kept = Vec::with_capacity(spans.len());
+        let mut cursor = 0usize;
+        for (start, end) in spans {
+            if start >= cursor {
+                cursor = end;
+                kept.push((start, end));
             }
         }
         kept
@@ -473,11 +510,9 @@ impl Filter {
     /// whitespace-split parallelization dropped cross-segment variants).
     #[cfg(feature = "parallel")]
     fn find_all_parallel(&self, text: &str) -> Vec<String> {
-        let patterns: Vec<&str> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-
         let (engine_results, variant_results) = rayon::join(
             || self.engine.find_all(text),
-            || self.variant_detector.detect(text, &patterns).into_iter().map(String::from).collect::<Vec<_>>(),
+            || self.variant_detector.detect_internal(text).into_iter().map(String::from).collect::<Vec<_>>(),
         );
 
         let mut results = engine_results;
@@ -491,10 +526,7 @@ impl Filter {
 
         // Add variant detection results (std only: pinyin/shape detection)
         #[cfg(feature = "std")]
-        {
-            let patterns: Vec<_> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-            results.extend(self.variant_detector.detect(text, &patterns).into_iter().map(|s| s.to_string()));
-        }
+        results.extend(self.variant_detector.detect_internal(text).into_iter().map(String::from));
 
         self.deduplicate_and_sort(results)
     }
@@ -572,8 +604,7 @@ impl Filter {
             }
             remaining.push_str(&clean_text[cursor..]);
 
-            let patterns: Vec<&str> = self.engine.get_patterns().iter().map(|s| s.as_str()).collect();
-            results.extend(self.variant_detector.detect(&remaining, &patterns).into_iter().map(String::from));
+            results.extend(self.variant_detector.detect_internal(&remaining).into_iter().map(String::from));
         }
 
         self.deduplicate_and_sort(results)
@@ -633,7 +664,10 @@ impl Filter {
         let mut lines = BufReader::new(file).lines();
         let mut words = Vec::new();
         while let Some(line) = lines.next_line().await? {
-            words.push(line);
+            let line = line.trim();
+            if !line.is_empty() {
+                words.push(line.to_string());
+            }
         }
         let refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
         self.add_words(&refs);
@@ -809,6 +843,29 @@ mod tests {
     }
 
     #[test]
+    fn test_load_skips_blank_lines() -> io::Result<()> {
+        // Regression: blank dictionary lines used to become empty patterns, which match
+        // at every position (crashing byte-span slicing inside multi-byte characters).
+        let mut filter = Filter::new();
+        filter.load(Cursor::new("\n赌博\n  \n色情\n"))?;
+
+        assert_eq!(filter.engine.get_patterns().len(), 2);
+        assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
+        // Long CJK text exercises byte-span slicing across multi-byte characters.
+        assert_eq!(filter.replace("这一段很长的中文内容里出现了赌博词汇", '*'), "这一段很长的中文内容里出现了**词汇");
+        Ok(())
+    }
+
+    #[test]
+    fn test_empty_patterns_dropped_on_add_words() {
+        // Defense in depth: the engine drops empty patterns even when added directly.
+        let mut filter = Filter::new();
+        filter.add_words(&["赌博", "", "色情"]);
+        assert_eq!(filter.engine.get_patterns().len(), 2);
+        assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
+    }
+
+    #[test]
     fn test_delete_space_word_removes_both_forms() {
         let mut filter = Filter::new();
         filter.add_words(&["A 级", "B 级"]);
@@ -824,7 +881,7 @@ mod tests {
     fn test_algorithm_recommendation() {
         assert_eq!(MultiPatternEngine::recommend_algorithm(50), MatchAlgorithm::WuManber);
         assert_eq!(MultiPatternEngine::recommend_algorithm(150), MatchAlgorithm::AhoCorasick);
-        assert_eq!(MultiPatternEngine::recommend_algorithm(15000), MatchAlgorithm::Regex);
+        assert_eq!(MultiPatternEngine::recommend_algorithm(15000), MatchAlgorithm::AhoCorasick);
     }
 
     #[test]

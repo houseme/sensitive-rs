@@ -31,13 +31,16 @@ A high-performance Rust crate for multi-pattern string matching, validation, fil
 
 The engine auto-selects based on vocabulary size:
 
-| Patterns   | Algorithm     | Rationale                                  |
-|------------|---------------|--------------------------------------------|
-| 0–100      | Wu-Manber     | Small tables, quick scan                   |
-| 101–10,000 | Aho-Corasick  | O(n) automaton scan regardless of count    |
-| 10,000+    | Regex         | Compilation overhead amortized             |
+| Patterns | Algorithm     | Rationale                                  |
+|----------|---------------|--------------------------------------------|
+| 0–100    | Wu-Manber     | Small tables, quick scan                   |
+| 100+     | Aho-Corasick  | O(n) automaton scan regardless of count    |
 
-Override with `Filter::with_algorithm(...)` or `--algorithm` on the CLI.
+Regex is no longer auto-selected at any size — on a 27,000-word dictionary an
+alternation regex scans about 60,000× slower than Aho-Corasick — but remains
+available via `Filter::with_algorithm(MatchAlgorithm::Regex)` or `--algorithm regex`
+on the CLI (its compiled-size limit is raised to 64 MB so very large vocabularies
+still compile).
 
 ## Platform Support
 

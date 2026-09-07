@@ -5,8 +5,12 @@
 //! | Patterns | Algorithm | Why |
 //! |----------|-----------|-----|
 //! | 0–100    | [`MatchAlgorithm::WuManber`]   | Small tables, quick scan |
-//! | 101–10k  | [`MatchAlgorithm::AhoCorasick`]| O(n) automaton scan regardless of count |
-//! | 10k+     | [`MatchAlgorithm::Regex`]      | Compilation overhead amortized over many patterns |
+//! | 100+     | [`MatchAlgorithm::AhoCorasick`]| O(n) automaton scan regardless of count |
+//!
+//! [`MatchAlgorithm::Regex`] is still available — force it with
+//! [`MultiPatternEngine::rebuild_with_algorithm`] — but is no longer auto-selected: measured
+//! on a 27k-entry Chinese dictionary it scans ~60,000× slower than Aho-Corasick (the huge
+//! leftmost-first alternation defeats the regex engine's fast paths).
 //!
 //! Use [`MultiPatternEngine::recommend_algorithm`] to preview the choice, or force one with
 //! [`MultiPatternEngine::rebuild_with_algorithm`].
@@ -15,7 +19,7 @@ pub mod wumanber;
 use crate::engine::wumanber::WuManber;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use alloc::{string::String, string::ToString, sync::Arc, vec::Vec};
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
 /// Supported matching algorithm types
 ///
@@ -103,8 +107,11 @@ impl MultiPatternEngine {
     }
 
     /// Rebuild the engine (called when the pattern is updated)
+    ///
+    /// Empty patterns are dropped: in Aho-Corasick they match at every byte offset
+    /// (including inside multi-byte characters) and in regex they match everywhere.
     pub fn rebuild(&mut self, patterns: &[String]) {
-        self.patterns = patterns.to_vec();
+        self.patterns = patterns.iter().filter(|p| !p.is_empty()).cloned().collect();
 
         // Reevaluate algorithm selection based on new thesaurus size
         let recommended = Self::recommend_algorithm(patterns.len());
@@ -118,19 +125,18 @@ impl MultiPatternEngine {
     /// Recommended algorithm based on the lexicon size
     ///
     /// - 0-100 patterns: WuManber (few patterns = small tables, quick scan)
-    /// - 101-10,000 patterns: AhoCorasick (automaton-based, O(n) scan)
-    /// - 10,000+ patterns: Regex (compilation overhead amortized)
+    /// - 100+ patterns: AhoCorasick (automaton-based, O(n) scan; measured ~60,000× faster
+    ///   than a regex alternation at 27k patterns)
     pub fn recommend_algorithm(word_count: usize) -> MatchAlgorithm {
         match word_count {
             0..=100 => MatchAlgorithm::WuManber,
-            101..=10_000 => MatchAlgorithm::AhoCorasick,
-            _ => MatchAlgorithm::Regex,
+            _ => MatchAlgorithm::AhoCorasick,
         }
     }
 
     /// Force rebuild using the specified algorithm
     pub fn rebuild_with_algorithm(&mut self, patterns: &[String], algorithm: MatchAlgorithm) {
-        self.patterns = patterns.to_vec();
+        self.patterns = patterns.iter().filter(|p| !p.is_empty()).cloned().collect();
         self.algorithm = algorithm;
         self.build_engines();
     }
@@ -169,7 +175,9 @@ impl MultiPatternEngine {
                     let escaped_patterns: Vec<String> = self.patterns.iter().map(|p| regex::escape(p)).collect();
                     let pattern = escaped_patterns.join("|");
 
-                    match Regex::new(&pattern) {
+                    // Large dictionaries overflow the default 10 MB compiled-size limit;
+                    // raise it so forced Regex use works (regex stays an opt-in choice).
+                    match RegexBuilder::new(&pattern).size_limit(64 * 1024 * 1024).build() {
                         Ok(regex) => self.regex_set = Some(regex),
                         Err(_) => {
                             // Fallback to WuManber if Regex build fails
@@ -280,6 +288,36 @@ impl MultiPatternEngine {
             MatchAlgorithm::Regex => {
                 if let Some(regex) = &self.regex_set {
                     regex.find_iter(text).map(|mat| mat.as_str().to_string()).collect()
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+    }
+
+    /// Find all match spans (byte offsets) without cloning the matched text.
+    ///
+    /// A span-only variant of [`MultiPatternEngine::find_matches_with_positions`] for
+    /// callers that only need positions (e.g. single-pass replacement).
+    pub fn find_match_spans(&self, text: &str) -> Vec<(usize, usize)> {
+        match self.algorithm {
+            MatchAlgorithm::AhoCorasick => {
+                if let Some(ac) = &self.ac {
+                    ac.find_iter(text).map(|mat| (mat.start(), mat.end())).collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            MatchAlgorithm::WuManber => {
+                if let Some(wm) = &self.wm {
+                    wm.find_matches(text).into_iter().map(|m| (m.start, m.end)).collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            MatchAlgorithm::Regex => {
+                if let Some(regex) = &self.regex_set {
+                    regex.find_iter(text).map(|mat| (mat.start(), mat.end())).collect()
                 } else {
                     Vec::new()
                 }
@@ -481,7 +519,9 @@ mod tests {
         assert_eq!(MultiPatternEngine::recommend_algorithm(100), MatchAlgorithm::WuManber);
         assert_eq!(MultiPatternEngine::recommend_algorithm(101), MatchAlgorithm::AhoCorasick);
         assert_eq!(MultiPatternEngine::recommend_algorithm(10_000), MatchAlgorithm::AhoCorasick);
-        assert_eq!(MultiPatternEngine::recommend_algorithm(10_001), MatchAlgorithm::Regex);
+        // Regex is no longer auto-selected at any size — it lost to AhoCorasick by ~4
+        // orders of magnitude on a 27k-entry dictionary — but stays force-selectable.
+        assert_eq!(MultiPatternEngine::recommend_algorithm(10_001), MatchAlgorithm::AhoCorasick);
     }
 
     #[test]

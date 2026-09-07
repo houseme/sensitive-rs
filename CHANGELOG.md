@@ -9,7 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Refreshed `Cargo.lock` to align with the latest crate versions after dependency resolution.
+- Refreshed `Cargo.lock` to the latest crate versions (`cargo update`): `smallvec` 1.16.0, `lru` 0.18.4, `clap` 4.6.6, `tokio` 1.53.1, `serde` 1.0.229, `wasm-bindgen` 0.2.128 and related transitive bumps. No Cargo.toml requirement changes were needed — every direct dependency was already on the newest release.
+- Algorithm auto-selection is now two-tier: **0–100 patterns → Wu-Manber, 100+ → Aho-Corasick**. The old "10,000+ patterns → Regex" tier is gone: on a 27,126-entry dictionary a regex alternation scanned ~60,000× slower than Aho-Corasick (22 ms vs ~0.36 ms per call). Regex remains force-selectable via `rebuild_with_algorithm` / `Filter::with_algorithm` / CLI `--algorithm regex`.
+- `VariantDetector` detection is index-driven: word pinyin keys and shape-confusable first characters are indexed at `add_word` time. Pinyin detection scans rolling-hash windows of the text's pinyin (O(text × key_lengths) integer ops) instead of re-deriving every word's pinyin and substring-searching per call; the `original_words` filter set is only built when there is at least one candidate. On the bundled 14k dictionary, `find_first_match` on clean text dropped from 5.48 ms to 31 µs (~175×) and on pinyin-variant text from 5.24 ms to 14 µs (~370×).
+- `Filter` now re-syncs the variant detector on every `add_words`/`del_words`, making "registered words == engine patterns" an invariant. This removes the per-call word-set bookkeeping from the hot path and fixes a latent bug where deleted words could still surface as pinyin/shape variants.
+- `WuManber` hot-path allocation removal: pattern char decompositions are precomputed once at build time (verify no longer collects `pattern.chars()` per candidate), table building and scanning hash char slices directly (no per-block `String`), text buffers use a stack `SmallVec` for short inputs, and non-strict space-handling searches preprocess the text once instead of per pattern.
+- `WasmFilter::load_words` collects all lines and adds them in one batch (the engine is rebuilt once instead of once per word — O(n²) → O(n) build time).
+- `Filter::replace` matches via a span-only engine path (`MultiPatternEngine::find_match_spans`) and writes replacement chars directly, avoiding a clone of the matched text per hit; `remove_noise` uses `Cow::into_owned`.
+
+### Added
+
+- `VariantDetector::detect_first` / `Filter::find_first_match`-backed first-match detection that tracks the lexicographic minimum without collecting and sorting all hits.
+- `VariantDetector::clear` for dropping all registrations.
+- Benchmark coverage for the uncached paths: `find_all` cold-cache groups (the previous `find_all` benchmarks rotated a single warm cache entry and mostly measured LRU hits), cached-vs-cold comparisons, and `find_first_match` (clean / exact hit / variant hit) on the bundled 14k dictionary.
+- New tests: substring shape-variant detection, `detect_first` vs `detect` agreement, unregistered-word legacy behavior, blank-line dictionary loading, empty-pattern rejection, and rolling-hash index behavior.
+
+### Fixed
+
+- **Panic with dictionaries containing blank lines**: empty lines became empty patterns; in Aho-Corasick an empty pattern matches at every byte offset (including inside multi-byte characters), crashing `text[start..end]` slicing and polluting results. Blank lines are now skipped by `Filter::load` / `load_word_dict_async` / `WasmFilter::load_words`, and the engine drops empty patterns on rebuild (defense in depth).
+- Forced `Regex` on very large vocabularies silently fell back to Wu-Manber because the alternation exceeded the default 10 MB compiled-size limit; the limit is now raised to 64 MB via `RegexBuilder`.
+- Shape-variant detection only compared the *whole text* when its length equaled the word's, making it nearly useless inside longer sentences. It now finds confusable words as substrings of any text (anchored on the word's first character and its confusable class).
+- Non-strict space handling (`IgnoreSpaces`/`NormalizeSpaces`) re-preprocessed the text once per pattern inside the search loops, and `search_all_with_preprocessing` returned preprocessed pattern forms instead of the original dictionary forms; both fixed.
+- `MultiPatternEngine::replace_all` with an all-whitespace pattern under non-strict space handling could match everywhere (the preprocessed pattern becomes empty); empty preprocessed patterns are now skipped.
 
 ## [1.3.0] - 2026-07-14
 
