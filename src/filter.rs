@@ -100,15 +100,29 @@ impl Filter {
         variants
     }
 
-    fn extend_patterns_with_word_variants(patterns: &mut Vec<String>, words: &[&str]) {
-        let mut seen: HashSet<String> = patterns.iter().cloned().collect();
-        for word in words {
-            for variant in Self::word_match_variants(word) {
-                if seen.insert(variant.clone()) {
-                    patterns.push(variant);
-                }
+    fn insert_word_variants(patterns: &mut Vec<String>, seen: &mut HashSet<String>, word: &str) {
+        let word = word.trim();
+        if word.is_empty() {
+            return;
+        }
+
+        if seen.insert(word.to_string()) {
+            patterns.push(word.to_string());
+        }
+
+        if word.chars().any(char::is_whitespace) {
+            let folded: String = word.chars().filter(|c| !c.is_whitespace()).collect();
+            if !folded.is_empty() && seen.insert(folded.clone()) {
+                patterns.push(folded);
             }
         }
+    }
+
+    fn rebuild_patterns(&mut self, patterns: &[String]) {
+        self.engine.rebuild(patterns);
+        #[cfg(feature = "std")]
+        self.sync_variant_detector();
+        self.clear_cache();
     }
 
     /// Re-register the variant detector from the (already updated) engine patterns.
@@ -184,12 +198,12 @@ impl Filter {
     /// ```
     pub fn add_words(&mut self, words: &[&str]) {
         let mut patterns = self.engine.get_patterns().to_vec();
-        Self::extend_patterns_with_word_variants(&mut patterns, words);
+        let mut seen: HashSet<String> = patterns.iter().cloned().collect();
+        for word in words {
+            Self::insert_word_variants(&mut patterns, &mut seen, word);
+        }
 
-        self.engine.rebuild(&patterns);
-        #[cfg(feature = "std")]
-        self.sync_variant_detector();
-        self.clear_cache();
+        self.rebuild_patterns(&patterns);
     }
 
     /// Get the currently used algorithm
@@ -240,14 +254,12 @@ impl Filter {
     pub fn load<R: BufRead>(&mut self, reader: R) -> io::Result<()> {
         // Blank lines must never become dictionary words: an empty pattern would match
         // at every position (and crash byte-span slicing inside multi-byte chars).
-        let words: Vec<String> = reader
-            .lines()
-            .collect::<io::Result<Vec<_>>>()?
-            .into_iter()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty())
-            .collect();
-        self.add_words(&words.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        let mut patterns = self.engine.get_patterns().to_vec();
+        let mut seen: HashSet<String> = patterns.iter().cloned().collect();
+        for line in reader.lines() {
+            Self::insert_word_variants(&mut patterns, &mut seen, &line?);
+        }
+        self.rebuild_patterns(&patterns);
         Ok(())
     }
 
@@ -392,7 +404,19 @@ impl Filter {
     #[must_use]
     pub fn filter(&self, text: &str) -> String {
         let clean_text = self.remove_noise(text);
-        self.engine.replace_all(&clean_text, "")
+        let matches = self.leftmost_longest_spans(&clean_text);
+        if matches.is_empty() {
+            return clean_text;
+        }
+
+        let mut result = String::with_capacity(clean_text.len());
+        let mut cursor = 0usize;
+        for (start, end) in &matches {
+            result.push_str(&clean_text[cursor..*start]);
+            cursor = *end;
+        }
+        result.push_str(&clean_text[cursor..]);
+        result
     }
 
     /// Validate text
@@ -662,15 +686,12 @@ impl Filter {
         use tokio::io::{AsyncBufReadExt, BufReader};
         let file = tokio::fs::File::open(path).await?;
         let mut lines = BufReader::new(file).lines();
-        let mut words = Vec::new();
+        let mut patterns = self.engine.get_patterns().to_vec();
+        let mut seen: HashSet<String> = patterns.iter().cloned().collect();
         while let Some(line) = lines.next_line().await? {
-            let line = line.trim();
-            if !line.is_empty() {
-                words.push(line.to_string());
-            }
+            Self::insert_word_variants(&mut patterns, &mut seen, &line);
         }
-        let refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
-        self.add_words(&refs);
+        self.rebuild_patterns(&patterns);
         Ok(())
     }
 
@@ -690,8 +711,12 @@ impl Filter {
     pub async fn load_net_word_dict_async(&mut self, url: &str) -> io::Result<()> {
         let response = reqwest::get(url).await.map_err(io::Error::other)?;
         let content = response.text().await.map_err(io::Error::other)?;
-        let words: Vec<&str> = content.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-        self.add_words(&words);
+        let mut patterns = self.engine.get_patterns().to_vec();
+        let mut seen: HashSet<String> = patterns.iter().cloned().collect();
+        for line in content.lines() {
+            Self::insert_word_variants(&mut patterns, &mut seen, line);
+        }
+        self.rebuild_patterns(&patterns);
         Ok(())
     }
 }
@@ -853,6 +878,16 @@ mod tests {
         assert_eq!(filter.find_in("含有赌博"), (true, "赌博".to_string()));
         // Long CJK text exercises byte-span slicing across multi-byte characters.
         assert_eq!(filter.replace("这一段很长的中文内容里出现了赌博词汇", '*'), "这一段很长的中文内容里出现了**词汇");
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_deduplicates_and_folds_space_words() -> io::Result<()> {
+        let mut filter = Filter::new();
+        filter.load(Cursor::new("赌博\n 赌博 \nA 级\nA级\n\n"))?;
+
+        assert_eq!(filter.engine.get_patterns().len(), 3);
+        assert_eq!(filter.find_in("含有 A级 内容"), (true, "A级".to_string()));
         Ok(())
     }
 
@@ -1068,6 +1103,17 @@ mod tests {
         // ...but the pinyin variant "dubo" is left untouched.
         assert_eq!(filter.replace("dubo", '*'), "dubo");
         assert_eq!(filter.filter("dubo"), "dubo");
+    }
+
+    #[test]
+    fn test_filter_removes_multiple_matches_with_large_dictionary() {
+        let words: Vec<_> = (0..150).map(|i| format!("敏感词{i:03}")).collect();
+        let word_refs: Vec<_> = words.iter().map(String::as_str).collect();
+        let mut filter = Filter::new();
+        filter.add_words(&word_refs);
+
+        assert!(matches!(filter.current_algorithm(), MatchAlgorithm::AhoCorasick));
+        assert_eq!(filter.filter("前缀敏感词005中间敏感词120后缀"), "前缀中间后缀");
     }
 
     #[test]
